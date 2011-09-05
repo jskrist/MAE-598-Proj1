@@ -10,13 +10,13 @@ double update(int &x,int &y,int &z);
 // 1 over the step size in each direction and default Temp
 const double dw = 50, // X
 	   		 dh = 50, // Y
-	    	 dl = 5, // Z
+	    	 dl = 50, // Z
 			 defltTemp = 0;
 
 // Physical Dimensions of the box
 const double w = 2, // X
 	   		 h = 2, // Y
-	    	 l = 20; // Z
+	    	 l = 2; // Z
 
 // Number of nodes in each direction
 const int i = (int)(w*dw),
