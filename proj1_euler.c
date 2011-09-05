@@ -7,22 +7,27 @@ double update(int &x,int &y,int &z);
 //  Global Variables
 //**************************************************
 
-// Physical Dimensions of the box and default Temp
-const double w = 1,
-	   		 h = 1,
-	    	 l = 1,
+// 1 over the step size in each direction and default Temp
+const double dw = 50, // X
+	   		 dh = 50, // Y
+	    	 dl = 5, // Z
 			 defltTemp = 0;
 
+// Physical Dimensions of the box
+const double w = 2, // X
+	   		 h = 2, // Y
+	    	 l = 20; // Z
+
 // Number of nodes in each direction
-const int i = (int)(w*100),
-	  	  j = (int)(h*100),
-		  k = (int)(l*100);
+const int i = (int)(w*dw),
+	  	  j = (int)(h*dh),
+		  k = (int)(l*dl);
 
 // Array of all the nodes
 double nodes[k][j][i] = { defltTemp };
 
 // Thermal defusivity and time step
-double alpha=1, dt=0.00001;
+double alpha=1, dt=0.0001;
 
 //**************************************************
 //  Main Program
@@ -46,7 +51,7 @@ int main(int argc, char** argv)
 
 	double lastTemp = defltTemp;
 	double diff = 0,
-		   minDiff = 1E-7,
+		   minDiff = 1E-6,
 		   minChg = 1E-2;
 
 	// Flags
@@ -79,8 +84,8 @@ int main(int argc, char** argv)
 				{
 					nodes[z][y][x] = update(x,y,z);
 
-					if((nodes[k-2][midJ][midI] > defltTemp + minChg  ||
-						nodes[k-2][midJ][midI] < defltTemp - minChg) && !changed)
+					if(!changed && (nodes[k-2][midJ][midI] > defltTemp + minChg  ||
+									nodes[k-2][midJ][midI] < defltTemp - minChg))
 					{
 //						printf("midNode = %f\n", nodes[midK][midJ][midI]);
 						changed = true;
@@ -90,6 +95,7 @@ int main(int argc, char** argv)
 				}
 			}
 		}
+
 		if (changed)
 		{
 			diff = fabs(lastTemp - nodes[k-2][midJ][midI]);
@@ -141,9 +147,9 @@ double update(int &x, int &y, int &z)
 	zP1=nodes[z+1][y][x];
 	zM1=nodes[z-1][y][x];
 
-	result = alpha*dt*(pow((double)i,2)*(xM1-2*nCur+xP1)
-					 + pow((double)j,2)*(yM1-2*nCur+yP1)
-					 + pow((double)k,2)*(zM1-2*nCur+zP1)) + nCur;
+	result = alpha*dt*(pow((double)dw,2)*(xM1-2*nCur+xP1)
+					 + pow((double)dh,2)*(yM1-2*nCur+yP1)
+					 + pow((double)dl,2)*(zM1-2*nCur+zP1)) + nCur;
 
 	return result;
 }
