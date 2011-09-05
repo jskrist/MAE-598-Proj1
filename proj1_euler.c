@@ -14,15 +14,15 @@ const double w = 1,
 			 defltTemp = 0;
 
 // Number of nodes in each direction
-const int i = (int)(w*100),
-	  	  j = (int)(h*100),
-		  k = (int)(l*100);
+const int i = (int)(w*10),
+	  	  j = (int)(h*10),
+		  k = (int)(l*10);
 
 // Array of all the nodes
 double nodes[k][j][i] = { defltTemp };
 
 // Thermal defusivity and time step
-double alpha=1, dt=0.00001;
+double alpha=1, dt=0.001;
 
 //**************************************************
 //  Main Program
@@ -78,21 +78,21 @@ int main(int argc, char** argv)
 				{
 					nodes[z][y][x] = update(x,y,z);
 
-					if((nodes[midK][midJ][midI] > defltTemp + minDiff  ||
-						nodes[midK][midJ][midI] < defltTemp - minDiff) && !changed)
+					if((nodes[1][midJ][midI] > defltTemp + minDiff  ||
+						nodes[1][midJ][midI] < defltTemp - minDiff) && !changed)
 					{
-						printf("midNode = %f\n", nodes[midK][midJ][midI]);
+						printf("midNode = %f\n", nodes[1][midJ][midI]);
 						changed = true;
 					}
-					if(x == 0 && y == 0)
+					if(x == midI && y == midJ)
 						fprintf(Ofile,"%d,%f\n", cnt, nodes[z][y][x]);
 				}
 			}
 		}
 		if (changed)
 		{
-			diff = fabs(lastTemp - nodes[midK][midJ][midI]);
-			lastTemp = nodes[midK][midJ][midI];
+			diff = fabs(lastTemp - nodes[1][midJ][midI]);
+			lastTemp = nodes[1][midJ][midI];
 			if(diff < minDiff)
 			{
 				printf("diff = %f, minDiff = %f\n", diff, minDiff);
