@@ -14,15 +14,15 @@ const double w = 1,
 			 defltTemp = 0;
 
 // Number of nodes in each direction
-const int i = (int)(w*10),
-	  	  j = (int)(h*10),
-		  k = (int)(l*10);
+const int i = (int)(w*50),
+	  	  j = (int)(h*50),
+		  k = (int)(l*50);
 
 // Array of all the nodes
 double nodes[k][j][i] = { defltTemp };
 
 // Thermal defusivity and time step
-double alpha=1, dt=0.001;
+double alpha=1, dt=0.00001;
 
 //**************************************************
 //  Main Program
@@ -41,12 +41,13 @@ int main(int argc, char** argv)
 //	printf("midI = %i, midJ = %i, midK = %i", midI, midJ, midK);
 
 	int cnt = 0;
-	double qo = 100.0;
+	double qo = 1000.0;
 	double qf = 0.0;
 
 	double lastTemp = defltTemp;
 	double diff = 0,
-		   minDiff = 1E-6;
+		   minDiff = 1E-6,
+		   minChg = 1E-2;
 
 	// Flags
 	bool changed = false,
@@ -78,10 +79,10 @@ int main(int argc, char** argv)
 				{
 					nodes[z][y][x] = update(x,y,z);
 
-					if((nodes[1][midJ][midI] > defltTemp + minDiff  ||
-						nodes[1][midJ][midI] < defltTemp - minDiff) && !changed)
+					if((nodes[k-2][midJ][midI] > defltTemp + minChg  ||
+						nodes[k-2][midJ][midI] < defltTemp - minChg) && !changed)
 					{
-						printf("midNode = %f\n", nodes[1][midJ][midI]);
+						printf("midNode = %f\n", nodes[midK][midJ][midI]);
 						changed = true;
 					}
 					if(x == midI && y == midJ)
@@ -91,8 +92,8 @@ int main(int argc, char** argv)
 		}
 		if (changed)
 		{
-			diff = fabs(lastTemp - nodes[1][midJ][midI]);
-			lastTemp = nodes[1][midJ][midI];
+			diff = fabs(lastTemp - nodes[k-2][midJ][midI]);
+			lastTemp = nodes[k-2][midJ][midI];
 			if(diff < minDiff)
 			{
 				printf("diff = %f, minDiff = %f\n", diff, minDiff);
@@ -132,7 +133,7 @@ double update(int &x, int &y, int &z)
 	else
 		yP1=0;
 
-	if(y-1 >= j)
+	if(y-1 >= 0)
 		yM1=nodes[z][y-1][x];
 	else
 		yM1=0;
