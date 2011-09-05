@@ -14,9 +14,9 @@ const double w = 1,
 			 defltTemp = 0;
 
 // Number of nodes in each direction
-const int i = (int)(w*50),
-	  	  j = (int)(h*50),
-		  k = (int)(l*50);
+const int i = (int)(w*100),
+	  	  j = (int)(h*100),
+		  k = (int)(l*100);
 
 // Array of all the nodes
 double nodes[k][j][i] = { defltTemp };
@@ -41,12 +41,12 @@ int main(int argc, char** argv)
 //	printf("midI = %i, midJ = %i, midK = %i", midI, midJ, midK);
 
 	int cnt = 0;
-	double qo = 1000.0;
+	double qo = 100.0;
 	double qf = 0.0;
 
 	double lastTemp = defltTemp;
 	double diff = 0,
-		   minDiff = 1E-6,
+		   minDiff = 1E-7,
 		   minChg = 1E-2;
 
 	// Flags
@@ -82,7 +82,7 @@ int main(int argc, char** argv)
 					if((nodes[k-2][midJ][midI] > defltTemp + minChg  ||
 						nodes[k-2][midJ][midI] < defltTemp - minChg) && !changed)
 					{
-						printf("midNode = %f\n", nodes[midK][midJ][midI]);
+//						printf("midNode = %f\n", nodes[midK][midJ][midI]);
 						changed = true;
 					}
 					if(x == midI && y == midJ)
@@ -96,7 +96,7 @@ int main(int argc, char** argv)
 			lastTemp = nodes[k-2][midJ][midI];
 			if(diff < minDiff)
 			{
-				printf("diff = %f, minDiff = %f\n", diff, minDiff);
+//				printf("diff = %f, minDiff = %f\n", diff, minDiff);
 				done = true;
 			}
 		}
