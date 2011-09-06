@@ -8,8 +8,8 @@ double update(int &x,int &y,int &z);
 //**************************************************
 
 // 1 over the step size in each direction and default Temp
-const double dw = 50, // X
-	   		 dh = 50, // Y
+const double dw = 100, // X
+	   		 dh = 100, // Y
 	    	 dl = 50, // Z
 			 defltTemp = 0;
 
@@ -27,7 +27,7 @@ const int i = (int)(w*dw),
 double nodes[k][j][i] = { defltTemp };
 
 // Thermal defusivity and time step
-double alpha=1, dt=0.0001;
+double alpha=1, dt=0.00002;
 
 //**************************************************
 //  Main Program
@@ -84,13 +84,20 @@ int main(int argc, char** argv)
 				{
 					nodes[z][y][x] = update(x,y,z);
 
+					if(nodes[z][y][x] > (qo + qf))
+					{
+						fprintf(Ofile,"Became unstable");
+
+						return 1;
+					}
+
 					if(!changed && (nodes[k-2][midJ][midI] > defltTemp + minChg  ||
 									nodes[k-2][midJ][midI] < defltTemp - minChg))
 					{
 //						printf("midNode = %f\n", nodes[midK][midJ][midI]);
 						changed = true;
 					}
-					if(x == midI && y == midJ)
+					if(cnt %10 == 0 && x == midI && y == midJ)
 						fprintf(Ofile,"%d,%f\n", cnt, nodes[z][y][x]);
 				}
 			}
