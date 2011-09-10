@@ -7,7 +7,7 @@ double update(int &x,int &y,int &z);
 //  Global Variables
 //**************************************************
 
-// 1 over the step size in each direction and default Temp
+// the step size in each direction and default Temp
 const double dw = 100, // X
 	   		 dh = 100, // Y
 	    	 dl = 100, // Z
@@ -27,7 +27,7 @@ const int i = (int)(w*dw),
 double nodes[k][j][i] = { defltTemp };
 
 // Thermal defusivity and time step
-double alpha=1, dt=0.00002;
+double alpha=1, dt=0.0001;
 
 //**************************************************
 //  Main Program
@@ -35,8 +35,8 @@ double alpha=1, dt=0.00002;
 int main(int argc, char** argv)
 {
 	// Open file to which data will be written
-//	FILE *Ofile;
-//	Ofile = fopen("tempData.txt","w");
+	FILE *Ofile;
+	Ofile = fopen("Data.txt","w");
 
 	// coordinate of the middle of the structure
 	int midI = (int)floor(double(i)/2.0);
@@ -49,14 +49,16 @@ int main(int argc, char** argv)
 	double qo = 100.0;
 	double qf = 0.0;
 
-	double lastTemp = defltTemp;
-	double diff = 0,
-		   minDiff = 1E-6,
-		   minChg = 1E-2;
+	double	lastTemp = defltTemp,
+			diff = 0,
+			minDiff = 1E-4,
+			minChg = 1E-2,
+			curNodeTemp = 0;
 
 	// Flags
 	bool changed = false,
-		 done	 = false;
+		 done	 = false,
+		 endLoop = false;
 
 	// Set initial temperature
 	for(int z = 0; z < k; z+=(k-1))
@@ -67,7 +69,7 @@ int main(int argc, char** argv)
 			{
 				if(z == 0)
 					nodes[z][y][x] = qo;
-				else if (z == k-1)
+				else
 					nodes[z][y][x] = qf;
 			}
 		}
@@ -76,32 +78,48 @@ int main(int argc, char** argv)
 	while(!done)
 	{
 		cnt++;
+
 		for(int z = 1; z < k-1; z++)
 		{
 			for(int y = 0; y < j; y++)
 			{
 				for(int x = 0; x < i; x++)
 				{
-					nodes[z][y][x] = update(x,y,z);
+					curNodeTemp = update(x,y,z);
+					nodes[z][y][x] = curNodeTemp;
 
-					if(nodes[z][y][x] > (qo + qf))
+					if(curNodeTemp > (qo + qf))
 					{
 						printf("Became unstable");
 
 						return 1;
 					}
-
-					if(!changed && (nodes[k-2][midJ][midI] > defltTemp + minChg  ||
-									nodes[k-2][midJ][midI] < defltTemp - minChg))
+					else if(curNodeTemp <= (defltTemp + minChg*minChg) )
 					{
-//						printf("midNode = %f\n", nodes[midK][midJ][midI]);
-						changed = true;
+						endLoop = true;
+						break;
 					}
-					if(cnt %10 == 0 && x == midI && y == midJ)
-						printf("%d,%f\n", cnt, nodes[z][y][x]);
+
+					if( x == midI && y == midJ )
+					{
+						if( !changed && z == (k-2) )
+						{
+							if(curNodeTemp > defltTemp + minChg  || curNodeTemp < defltTemp - minChg)
+								changed = true;
+						}
+
+						if(cnt %100 == 0)
+							fprintf(Ofile,"%d,%f\n", cnt, nodes[z][y][x]);
+					}
 				}
+				if(endLoop)
+					break;
 			}
+			if(endLoop)
+				break;
 		}
+		if(endLoop)
+			endLoop = false;
 
 		if (changed)
 		{
@@ -114,7 +132,7 @@ int main(int argc, char** argv)
 			}
 		}
 	}
-//	fclose(Ofile);
+	fclose(Ofile);
 
 	return 0;
 }
@@ -134,22 +152,22 @@ double update(int &x, int &y, int &z)
 	if(x+1 < i)
 		xP1=nodes[z][y][x+1];
 	else
-		xP1=0;
+		xP1=nCur;
 
 	if(x-1 >= 0)
 		xM1=nodes[z][y][x-1];
 	else
-		xM1=0;
+		xM1=nCur;
 
 	if(y+1 < j)
 		yP1=nodes[z][y+1][x];
 	else
-		yP1=0;
+		yP1=nCur;
 
 	if(y-1 >= 0)
 		yM1=nodes[z][y-1][x];
 	else
-		yM1=0;
+		yM1=nCur;
 
 	zP1=nodes[z+1][y][x];
 	zM1=nodes[z-1][y][x];
