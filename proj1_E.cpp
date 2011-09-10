@@ -25,7 +25,7 @@ const int i = (int)(w*dw),
 		  k = (int)(l*dl);
 
 // Array of all the nodes
-double nodes[k][j][i] = { defltTemp };
+double nodes[20][20][20] = { defltTemp };
 
 // Thermal defusivity and time step
 double alpha=1, dt=0.00003;
@@ -59,10 +59,13 @@ int main(int argc, char** argv)
 		 endLoop = false;
 
 	// Set initial temperature
+	#pragma omp parallel for
 	for(int z = 0; z < k; z+=(k-1))
 	{
+		#pragma omp parallel for
 		for(int y = 0; y < j; y++)
 		{
+			#pragma omp parallel for
 			for(int x = 0; x < i; x++)
 			{
 				if(z == 0)
@@ -77,6 +80,7 @@ int main(int argc, char** argv)
 	{
 		cnt++;
 
+//		#pragma omp parallel for
 		for(int z = 1; z < k-1; z++)
 		{
 			for(int y = 0; y < j; y++)
