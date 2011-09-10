@@ -41,9 +41,6 @@ int main(int argc, char** argv)
 	// coordinate of the middle of the structure
 	int midI = (int)floor(double(i)/2.0);
 	int midJ = (int)floor(double(j)/2.0);
-	int midK = (int)floor(double(k)/2.0);
-
-//	printf("midI = %i, midJ = %i, midK = %i", midI, midJ, midK);
 
 	int cnt = 0;
 	double qo = 100.0;
@@ -94,22 +91,10 @@ int main(int argc, char** argv)
 
 						return 1;
 					}
-					else if(curNodeTemp <= (defltTemp + minChg*minChg) )
+					else if(curNodeTemp < (defltTemp + minDiff) )
 					{
 						endLoop = true;
 						break;
-					}
-
-					if( x == midI && y == midJ )
-					{
-						if( !changed && z == (k-2) )
-						{
-							if(curNodeTemp > defltTemp + minChg  || curNodeTemp < defltTemp - minChg)
-								changed = true;
-						}
-
-						if(cnt %100 == 0)
-							fprintf(Ofile,"%d,%f\n", cnt, nodes[z][y][x]);
 					}
 				}
 				if(endLoop)
@@ -121,7 +106,18 @@ int main(int argc, char** argv)
 		if(endLoop)
 			endLoop = false;
 
-		if (changed)
+		if(cnt % 100 == 0)
+			fprintf(Ofile,"%d,%f\n", cnt, nodes[k-2][midJ][midI]);
+
+		if( !changed )
+		{
+			if(nodes[k-2][midJ][midI] > defltTemp + minChg || nodes[k-2][midJ][midI] < defltTemp - minChg)
+				changed = true;
+		}
+		//  ASUMPTION that the loop in which it initially changes is not the same 
+		//  loop that it reaches the steady-state otherwise we will get one more
+		//  itteration
+		else
 		{
 			diff = fabs(lastTemp - nodes[k-2][midJ][midI]);
 			lastTemp = nodes[k-2][midJ][midI];
