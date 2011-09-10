@@ -8,9 +8,9 @@ double update(int &x,int &y,int &z);
 //**************************************************
 
 // the step size in each direction and default Temp
-const double dw = 100, // X
-	   		 dh = 100, // Y
-	    	 dl = 100, // Z
+const double dw = 10, // X
+	   		 dh = 10, // Y
+	    	 dl = 10, // Z
 			 defltTemp = 0;
 
 // Physical Dimensions of the box
@@ -27,7 +27,7 @@ const int i = (int)(w*dw),
 double nodes[k][j][i] = { defltTemp };
 
 // Thermal defusivity and time step
-double alpha=1, dt=0.0001;
+double alpha=1, dt=0.00003;
 
 //**************************************************
 //  Main Program
@@ -48,7 +48,7 @@ int main(int argc, char** argv)
 
 	double	lastTemp = defltTemp,
 			diff = 0,
-			minDiff = 1E-4,
+			minDiff = 2E-5,
 			minChg = 1E-2,
 			curNodeTemp = 0;
 
@@ -106,8 +106,13 @@ int main(int argc, char** argv)
 		if(endLoop)
 			endLoop = false;
 
-		if(cnt % 100 == 0)
-			fprintf(Ofile,"%d,%f\n", cnt, nodes[k-2][midJ][midI]);
+		if(cnt == 1)
+		{
+			for(int z = 0; z < k; z++)
+			{
+				fprintf(Ofile,"%d,%f\n", cnt, nodes[z][midJ][midI]);
+			}
+		}
 
 		if( !changed )
 		{
@@ -128,6 +133,12 @@ int main(int argc, char** argv)
 			}
 		}
 	}
+
+	for(int z = 0; z < k; z++)
+	{
+		fprintf(Ofile,"%d,%f\n", cnt, nodes[z][midJ][midI]);
+	}
+
 	fclose(Ofile);
 
 	return 0;
