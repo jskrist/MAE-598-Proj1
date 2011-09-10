@@ -2,7 +2,6 @@
 #include <math.h>
 #include "MatToolBox.h"
 
-
 bool updateRow(int &x,int &y);
 
 //**************************************************
@@ -36,7 +35,7 @@ CVector<double> dx(k-1);
 double nodes[k][j][i] = { defltTemp };
 
 // Thermal defusivity and time step
-double alpha=1, dt=0.00002;
+double alpha=1, dt=0.00003;
 
 double qo = 100.0,
 	   qf = 0.0,
@@ -56,11 +55,10 @@ int main(int argc, char** argv)
 	// coordinate of the middle of the structure
 	int midI = (int)floor(double(i)/2.0);
 	int midJ = (int)floor(double(j)/2.0);
-	int midK = (int)floor(double(k)/2.0);
 
 	double	lastTemp = defltTemp,
 			diff = 0,
-			minDiff = 1E-6,
+			minDiff = 2E-5,
 			curNodeTemp = 0;
 
 	// Flags
@@ -106,9 +104,11 @@ int main(int argc, char** argv)
 //				printf("Changed with node value of %f\n",nodes[k-2][0][0]);
 			}
 		}
-		if (changed)
+		//  ASUMPTION that the loop in which it initially changes is not the same 
+		//  loop that it reaches the steady-state otherwise we will get one more
+		//  itteration
+		else
 		{
-//			printf("lastTemp is %f and diff is %f\n", lastTemp, diff);
 			diff = fabs(lastTemp - nodes[k-2][0][0]);
 			lastTemp = nodes[k-2][0][0];
 			if(diff < minDiff)
