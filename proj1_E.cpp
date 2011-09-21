@@ -60,18 +60,24 @@ int main(int argc, char** argv)
 
 	// Set initial temperature
 	#pragma omp parallel for
-	for(int z = 0; z < k; z+=(k-1))
 	{
-		#pragma omp parallel for
-		for(int y = 0; y < j; y++)
+		for(int z = 0; z < k; z+=(k-1))
 		{
 			#pragma omp parallel for
-			for(int x = 0; x < i; x++)
 			{
-				if(z == 0)
-					nodes[z][y][x] = qo;
-				else
-					nodes[z][y][x] = qf;
+				for(int y = 0; y < j; y++)
+				{
+					#pragma omp parallel for
+					{
+						for(int x = 0; x < i; x++)
+						{
+							if(z == 0)
+								nodes[z][y][x] = qo;
+							else
+								nodes[z][y][x] = qf;
+						}
+					}
+				}
 			}
 		}
 	}
@@ -80,43 +86,54 @@ int main(int argc, char** argv)
 	{
 		cnt++;
 
-//		#pragma omp parallel for
-		for(int z = 1; z < k-1; z++)
+		#pragma omp parallel for
 		{
-			for(int y = 0; y < j; y++)
+			for(int z = 1; z < k-1; z++)
 			{
-				for(int x = 0; x < i; x++)
+				#pragma omp parallel for
 				{
-					curNodeTemp = update(x,y,z);
-					nodes[z][y][x] = curNodeTemp;
-
-					if(curNodeTemp > (qo + qf))
+					for(int y = 0; y < j; y++)
 					{
-						printf("Became unstable");
+						#pragma omp parallel for
+						{
+							for(int x = 0; x < i; x++)
+							{
+								curNodeTemp = update(x,y,z);
+								nodes[z][y][x] = curNodeTemp;
 
-						return 1;
+								if(curNodeTemp > (qo + qf))
+								{
+									printf("Became unstable");
+
+									return 1;
+								}
+								else if(curNodeTemp < (defltTemp + minDiff) )
+								{
+									endLoop = true;
+									break;
+								}
+							}
+							if(endLoop)
+								break;
+						}
 					}
-					else if(curNodeTemp < (defltTemp + minDiff) )
-					{
-						endLoop = true;
+					if(endLoop)
 						break;
-					}
 				}
-				if(endLoop)
-					break;
 			}
-			if(endLoop)
-				break;
 		}
 		if(endLoop)
 			endLoop = false;
 
 		if(cnt == 1)
 		{
-			for(int z = 0; z < k; z++)
+			#pragma omp parallel for
 			{
-				fprintf(Ofile,"%d,%f\n", cnt, nodes[z][midJ][midI]);
-			}
+				for(int z = 0; z < k; z++)
+				{
+					fprintf(Ofile,"%d,%f\n", cnt, nodes[z][midJ][midI]);
+				}
+			}	
 		}
 
 		if( !changed )
@@ -139,9 +156,12 @@ int main(int argc, char** argv)
 		}
 	}
 
-	for(int z = 0; z < k; z++)
+	#pragma omp parallel for
 	{
-		fprintf(Ofile,"%d,%f\n", cnt, nodes[z][midJ][midI]);
+		for(int z = 0; z < k; z++)
+		{
+			fprintf(Ofile,"%d,%f\n", cnt, nodes[z][midJ][midI]);
+		}
 	}
 
 	fclose(Ofile);
