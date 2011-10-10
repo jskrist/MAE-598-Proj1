@@ -1,5 +1,7 @@
 #include <stdio.h>
 #include <math.h>
+#include <mpi.h>
+#define WCOMM MPI_COMM_WORLD
 
 double update(int &x,int &y,int &z);
 
@@ -34,6 +36,11 @@ double alpha=1, dt=0.00003;
 //**************************************************
 int main(int argc, char** argv)
 {
+
+	MPI_Init(&argc, &argv);
+	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+	MPI_Comm_size(MPI_COMM_WORLD, &size);
+
 	// Open file to which data will be written
 	FILE *Ofile;
 	Ofile = fopen("Data.txt","w");
@@ -141,6 +148,7 @@ int main(int argc, char** argv)
 
 	fclose(Ofile);
 
+	MPI_Finalize();
 	return 0;
 }
 
