@@ -9,9 +9,9 @@ double update(int &x,int &y,int &z);
 //**************************************************
 
 // the step size in each direction and default Temp
-const double dw = 10, // X
-	   		 dh = 10, // Y
-	    	 dl = 10, // Z
+const double dw = 100, // X
+	   		 dh = 100, // Y
+	    	 dl = 100, // Z
 			 defltTemp = 0;
 
 // Physical Dimensions of the box
@@ -25,10 +25,13 @@ const int i = (int)(w*dw),
 		  k = (int)(l*dl);
 
 // Array of all the nodes
-double nodes[20][20][20] = { defltTemp };
+double nodes[k][j][i] = { defltTemp };
 
 // Thermal defusivity and time step
-double alpha=1, dt=0.00003;
+double alpha=1, dt=0.00003, wtime1 = 0,
+	   						wtime2 = 0,
+							wtime3 = 0,
+							wtime4 = 0;
 
 //**************************************************
 //  Main Program
@@ -36,8 +39,8 @@ double alpha=1, dt=0.00003;
 int main(int argc, char** argv)
 {
 	// Open file to which data will be written
-	FILE *Ofile;
-	Ofile = fopen("Data.txt","w");
+//	FILE *Ofile;
+//	Ofile = fopen("Data.txt","w");
 
 	// coordinate of the middle of the structure
 	int midI = (int)floor(double(i)/2.0);
@@ -57,84 +60,68 @@ int main(int argc, char** argv)
 	bool changed = false,
 		 done	 = false,
 		 endLoop = false;
-
+wtime1 = omp_get_wtime();
 	// Set initial temperature
 	#pragma omp parallel for
-	{
 		for(int z = 0; z < k; z+=(k-1))
 		{
-			#pragma omp parallel for
+			for(int y = 0; y < j; y++)
 			{
-				for(int y = 0; y < j; y++)
+				for(int x = 0; x < i; x++)
 				{
-					#pragma omp parallel for
-					{
-						for(int x = 0; x < i; x++)
-						{
-							if(z == 0)
-								nodes[z][y][x] = qo;
-							else
-								nodes[z][y][x] = qf;
-						}
-					}
+					if(z == 0)
+						nodes[z][y][x] = qo;
+					else
+						nodes[z][y][x] = qf;
 				}
 			}
 		}
-	}
-
+wtime2 = omp_get_wtime() - wtime1;
 	while(!done)
 	{
 		cnt++;
-
-		#pragma omp parallel for
-		{
+wtime3 = omp_get_wtime() - wtime1;
+		#pragma omp parallel for private(done)
 			for(int z = 1; z < k-1; z++)
 			{
-				#pragma omp parallel for
+				for(int y = 0; y < j; y++)
 				{
-					for(int y = 0; y < j; y++)
+					for(int x = 0; x < i; x++)
 					{
-						#pragma omp parallel for
+						curNodeTemp = update(x,y,z);
+						nodes[z][y][x] = curNodeTemp;
+
+						if(curNodeTemp > (qo + qf))
 						{
-							for(int x = 0; x < i; x++)
-							{
-								curNodeTemp = update(x,y,z);
-								nodes[z][y][x] = curNodeTemp;
+							printf("Became unstable");
 
-								if(curNodeTemp > (qo + qf))
-								{
-									printf("Became unstable");
-
-									return 1;
-								}
-								else if(curNodeTemp < (defltTemp + minDiff) )
-								{
-									endLoop = true;
-									break;
-								}
-							}
-							if(endLoop)
-								break;
+							done    = true;
+							endLoop = true;
+						}
+						else if(curNodeTemp < (defltTemp + minDiff) )
+						{
+							endLoop = true;
+							x = i;
 						}
 					}
 					if(endLoop)
-						break;
+						y = j;
 				}
+				if(endLoop)
+					z = k;
 			}
-		}
+wtime4 = omp_get_wtime() - wtime1;
 		if(endLoop)
 			endLoop = false;
 
-		if(cnt == 1)
-		{
-			#pragma omp parallel for
-			{
-				for(int z = 0; z < k; z++)
-				{
-					fprintf(Ofile,"%d,%f\n", cnt, nodes[z][midJ][midI]);
-				}
-			}	
-		}
+//		if(cnt == 1)
+//		{
+//			#pragma omp parallel for
+//				for(int z = 0; z < k; z++)
+//				{
+//					fprintf(Ofile,"%d,%f\n", cnt, nodes[z][midJ][midI]);
+//				}
+//		}
 
 		if( !changed )
 		{
@@ -156,16 +143,14 @@ int main(int argc, char** argv)
 		}
 	}
 
-	#pragma omp parallel for
-	{
-		for(int z = 0; z < k; z++)
-		{
-			fprintf(Ofile,"%d,%f\n", cnt, nodes[z][midJ][midI]);
-		}
-	}
+//	#pragma omp parallel for
+//		for(int z = 0; z < k; z++)
+//		{
+//			fprintf(Ofile,"%d,%f\n", cnt, nodes[z][midJ][midI]);
+//		}
 
-	fclose(Ofile);
-
+//	fclose(Ofile);
+	printf("First time: %f\nInitialize time: %f\nstart While time: %f\nend While time: %f\n",wtime1,wtime2,wtime3,wtime4);
 	return 0;
 }
 

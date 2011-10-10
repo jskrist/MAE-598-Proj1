@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <math.h>
 #include "MatToolBox.h"
+#include <omp.h>
 
 bool updateRow(int &x,int &y);
 
@@ -9,9 +10,9 @@ bool updateRow(int &x,int &y);
 //**************************************************
 
 // the step size in each direction and default Temp
-const double dw = 50, // X
-	   		 dh = 50, // Y
-	    	 dl = 50, // Z
+const double dw = 100, // X
+	   		 dh = 100, // Y
+	    	 dl = 100, // Z
 			 defltTemp = 0;
 
 // Physical Dimensions of the box
@@ -26,10 +27,15 @@ const int i = (int)(w*dw),
 
 CMatToolBox<double> M;
 
-CMatrix<double> dA(k-1,k-1);
+CMatrix<double> dA(k-2,k-2);
 
-CVector<double> db(k-1);
-CVector<double> dx(k-1);
+
+double qo = 100.0,
+	   qf = 0.0,
+	   minChg = 1E-2;
+
+CVector<double> db(k-2);
+CVector<double> dx(k-2);
 
 // Array of all the nodes
 double nodes[k][j][i] = { defltTemp };
@@ -37,9 +43,6 @@ double nodes[k][j][i] = { defltTemp };
 // Thermal defusivity and time step
 double alpha=1, dt=0.00003;
 
-double qo = 100.0,
-	   qf = 0.0,
-	   minChg = 1E-2;
 
 int cnt = 0;
 
@@ -49,8 +52,8 @@ int cnt = 0;
 int main(int argc, char** argv)
 {
 	// Open file to which data will be written
-	FILE *Ofile;
-	Ofile = fopen("DataC.txt","w");
+//	FILE *Ofile;
+//	Ofile = fopen("DataC.txt","w");
 
 	// coordinate of the middle of the structure
 	int midI = (int)floor(double(i)/2.0);
@@ -67,6 +70,7 @@ int main(int argc, char** argv)
 		 endLoop = false;
 
 	// Set initial temperature
+	#pragma omp parallel for
 	for(int z = 0; z < k; z+=(k-1))
 	{
 		for(int y = 0; y < j; y++)
@@ -119,20 +123,21 @@ int main(int argc, char** argv)
 		}
 	}
 
-	for(int z = 1; z < k; z++)
+	#pragma omp parallel for
+	for(int z = 1; z < k-1; z++)
 	{
 		for(int y = 0; y < j; y++)
 		{
 			for(int x = 0; x < i; x++)
 			{
-				nodes[z][y][x] = dx(z);
-				if(x == 0 && y == 0)
-					fprintf(Ofile,"%i, %f\n",cnt, dx(z));
+				nodes[z][y][x] = dx(z + 1);
+//				if(x == 0 && y == 0)
+//					fprintf(Ofile,"%i, %f\n",cnt, dx(z));
 			}
 		}
 	}
 
-	fclose(Ofile);
+//	fclose(Ofile);
 
 	return 0;
 }
@@ -149,7 +154,8 @@ bool updateRow(int &x, int &y)
 
 	r = (dt*alpha*dl*dl*0.5);
 
-	for(int q = 1; q < k; q++)
+	#pragma omp parallel for
+	for(int q = 1; q < k-1; q++)
 	{
 		zP1  = nodes[q+1][y][x];
 		zCur = nodes[q][y][x];
@@ -162,7 +168,7 @@ bool updateRow(int &x, int &y)
 			dA(q,q)   = (1+2*r);
 			dA(q+1,q) = (-1*r);
 		}
-		else if(q == k-1)
+		else if(q == k-2)
 		{
 			ztP1 = zP1;
 			db(q) = (1-2*r)*zCur+r*(zM1+zP1+ztP1);
@@ -192,10 +198,14 @@ bool updateRow(int &x, int &y)
 		return false;
 	}
 
-	for(int q = 1; q < k; q++)
+	#pragma omp parallel for
+	for(int q = 1; q < k-1; q++)
 	{
+		if(dx(q) < defltTemp || dx(q) > qo)
+			printf("Became Unstable with dx(%i) = %f at cnt %i\n", q, dx(q), cnt);
 		nodes[q][y][x] = dx(q);
 	}
+
 	return true;
 }
 
