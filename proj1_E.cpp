@@ -1,7 +1,8 @@
+#include <iostream>
 #include <stdio.h>
 #include <math.h>
 #include <mpi.h>
-#define WCOMM MPI_COMM_WORLD
+#include <string>
 
 double update(int &x,int &y,int &z);
 
@@ -10,9 +11,9 @@ double update(int &x,int &y,int &z);
 //**************************************************
 
 // the step size in each direction and default Temp
-const double dw = 10, // X
-	   		 dh = 10, // Y
-	    	 dl = 10, // Z
+const double dw = 100, // X
+	   		 dh = 100, // Y
+	    	 dl = 100, // Z
 			 defltTemp = 0;
 
 // Physical Dimensions of the box
@@ -31,23 +32,51 @@ double nodes[k][j][i] = { defltTemp };
 // Thermal defusivity and time step
 double alpha=1, dt=0.00003;
 
+// Cartesian communicator variables
+MPI_Comm oldComm, cartComm;
+int ndims = 3,
+	dims[3] = {2,2,2},
+	periods[3] = {0, 0, 0},
+	reorder = 0,
+	coords[3];
+
 //**************************************************
 //  Main Program
 //**************************************************
 int main(int argc, char** argv)
 {
+	int rank, size;
+	int dX = i*0.5, dY = j*0.5, dZ = k*0.5;
+	int nLoopX = 0, nLoopY = 0, nLoopZ = 0;
 
 	MPI_Init(&argc, &argv);
+	oldComm = MPI_COMM_WORLD;
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 	MPI_Comm_size(MPI_COMM_WORLD, &size);
 
+	// Creates a cartesian communicator
+	MPI_Cart_create(oldComm, ndims, dims, 
+					periods, reorder, &cartComm);
+
+	// Get the coordinates of this processor
+	MPI_Cart_coords(cartComm, rank, 3, coords);
+
+	// Set the start points for the loops
+	nLoopX = coords[0] * dX;
+	nLoopY = coords[1] * dY;
+	nLoopZ = coords[2] * dZ;
+
 	// Open file to which data will be written
 	FILE *Ofile;
-	Ofile = fopen("Data.txt","w");
+	// Only have the first processor control the file
+	if(rank == 0)
+	{
+		Ofile = fopen("Data.txt","w");
+	}
 
 	// coordinate of the middle of the structure
-	int midI = (int)floor(double(i)/2.0);
-	int midJ = (int)floor(double(j)/2.0);
+	int midI = (int)floor(double(i) * 0.5);
+	int midJ = (int)floor(double(j) * 0.5);
 
 	int cnt = 0;
 	double qo = 100.0;
@@ -61,92 +90,120 @@ int main(int argc, char** argv)
 
 	// Flags
 	bool changed = false,
-		 done	 = false,
 		 endLoop = false;
+	int done = 0;
 
 	// Set initial temperature
-	for(int z = 0; z < k; z+=(k-1))
+	if(nLoopZ == 0)
 	{
-		for(int y = 0; y < j; y++)
+		for(int y = nLoopY; y < nLoopY + dY; y++)
 		{
-			for(int x = 0; x < i; x++)
+			for(int x = nLoopX; x < nLoopX + dX; x++)
 			{
-				if(z == 0)
-					nodes[z][y][x] = qo;
-				else
-					nodes[z][y][x] = qf;
+				nodes[0][y][x] = qo;
+			}
+		}
+	}
+	else if (nLoopZ + dZ == k)
+	{
+		for(int y = nLoopY; y < nLoopY + dY; y++)
+		{
+			for(int x = nLoopX; x < nLoopX + dX; x++)
+			{
+				nodes[k-1][y][x] = qf;
 			}
 		}
 	}
 
-	while(!done)
+	// Make sure all of the initalization is done
+//	MPI_Barrier(cartComm);
+	MPI_Allreduce( MPI_IN_PLACE, &nodes, i*j*k, MPI_DOUBLE, MPI_MAX, cartComm );
+
+	while(done == 0)
 	{
-		cnt++;
-
-		for(int z = 1; z < k-1; z++)
+		for(int z = nLoopZ; z < nLoopZ + dZ; z++)
 		{
-			for(int y = 0; y < j; y++)
+			if(z != 0 && z != k-1)
 			{
-				for(int x = 0; x < i; x++)
+				for(int y = nLoopY; y < nLoopY + dY; y++)
 				{
-					curNodeTemp = update(x,y,z);
-					nodes[z][y][x] = curNodeTemp;
-
-					if(curNodeTemp > (qo + qf))
+					for(int x = nLoopX; x < nLoopX + dX; x++)
 					{
-						printf("Became unstable");
+						curNodeTemp = update(x,y,z);
+						nodes[z][y][x] = curNodeTemp;
 
-						return 1;
+						if(curNodeTemp > (qo + qf))
+						{
+							printf("Became unstable");
+							MPI_Finalize();
+
+							return 1;
+						}
+						else if(curNodeTemp < (defltTemp + minDiff) )
+						{
+							endLoop = true;
+							break;
+						}
 					}
-					else if(curNodeTemp < (defltTemp + minDiff) )
-					{
-						endLoop = true;
+					if(endLoop)
 						break;
-					}
 				}
 				if(endLoop)
 					break;
 			}
-			if(endLoop)
-				break;
 		}
-		if(endLoop)
-			endLoop = false;
+		endLoop = false;
 
-		if(cnt == 1)
+		if(cnt == 0 && rank == 0)
 		{
-			for(int z = 0; z < k; z++)
+			for(int z = nLoopZ; z < nLoopZ + dZ; z++)
 			{
-				fprintf(Ofile,"%d,%f\n", cnt, nodes[z][midJ][midI]);
+				fprintf(Ofile,"%i,%f\n", cnt, nodes[z][0][0]);
 			}
 		}
+		cnt++;
 
 		if( !changed )
 		{
-			if(nodes[k-2][midJ][midI] > defltTemp + minChg || nodes[k-2][midJ][midI] < defltTemp - minChg)
+			if(nodes[k-2][nLoopY][nLoopX] > defltTemp + minChg || nodes[k-2][nLoopY][nLoopX] < defltTemp - minChg)
+			{
 				changed = true;
+				MPI_Bcast(&changed, 1, MPI::BOOL, rank, cartComm);
+			}
 		}
 		//  ASUMPTION that the loop in which it initially changes is not the same 
 		//  loop that it reaches the steady-state otherwise we will get one more
 		//  itteration
 		else
 		{
-			diff = fabs(lastTemp - nodes[k-2][midJ][midI]);
-			lastTemp = nodes[k-2][midJ][midI];
+			diff = fabs(lastTemp - nodes[k-2][nLoopY][nLoopX]);
+			lastTemp = nodes[k-2][nLoopY][nLoopX];
 			if(diff < minDiff)
 			{
-//				printf("diff = %f, minDiff = %f\n", diff, minDiff);
-				done = true;
+				done = 1;
 			}
 		}
-	}
 
-	for(int z = 0; z < k; z++)
+		// If one processor meets the ending requirements then send that to
+		// all processors so they can quit working
+		MPI_Allreduce( MPI_IN_PLACE, &done, 1, MPI_INT, MPI_MAX, cartComm);
+
+		// Make sure all data is up to date at the end of every time step
+		MPI_Allreduce( MPI_IN_PLACE, &nodes, i*j*k, MPI_DOUBLE, MPI_MAX, cartComm);
+	}
+	// Note when a processor exits the loop
+	// std::cout << "Node " << rank << " is out\n";
+	// When node 0 exits have it write out to the data file
+	if(rank == 0)
 	{
-		fprintf(Ofile,"%d,%f\n", cnt, nodes[z][midJ][midI]);
+		for(int z = 0; z < k; z++)
+		{
+			fprintf(Ofile,"%i,%f,%i\n", cnt, nodes[z][midJ][midI], rank);
+		}
+		fclose(Ofile);
 	}
-
-	fclose(Ofile);
+	// Make sure all the nodes are ready before we finalize and exit
+	//MPI_Barrier(oldComm);
 
 	MPI_Finalize();
 	return 0;
