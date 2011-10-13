@@ -5,15 +5,16 @@
 #include <string>
 
 double update(int &x,int &y,int &z);
+void   setDims(int &nSize);
 
 //**************************************************
 //  Global Variables
 //**************************************************
 
 // the step size in each direction and default Temp
-const double dw = 100, // X
-	   		 dh = 100, // Y
-	    	 dl = 100, // Z
+const double dw = 200, // X
+	   		 dh = 200, // Y
+	    	 dl = 200, // Z
 			 defltTemp = 0;
 
 // Physical Dimensions of the box
@@ -35,7 +36,7 @@ double alpha=1, dt=0.00003;
 // Cartesian communicator variables
 MPI_Comm oldComm, cartComm;
 int ndims = 3,
-	dims[3] = {2,2,2},
+	dims[3],
 	periods[3] = {0, 0, 0},
 	reorder = 0,
 	coords[3];
@@ -46,7 +47,6 @@ int ndims = 3,
 int main(int argc, char** argv)
 {
 	int rank, size;
-	int dX = i*0.5, dY = j*0.5, dZ = k*0.5;
 	int nLoopX = 0, nLoopY = 0, nLoopZ = 0;
 
 	MPI_Init(&argc, &argv);
@@ -54,6 +54,12 @@ int main(int argc, char** argv)
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 	MPI_Comm_size(MPI_COMM_WORLD, &size);
 
+	setDims(size);
+
+	int dX = i / dims[0],
+		dY = j / dims[1],
+		dZ = k / dims[2];
+	
 	// Creates a cartesian communicator
 	MPI_Cart_create(oldComm, ndims, dims, 
 					periods, reorder, &cartComm);
@@ -69,7 +75,7 @@ int main(int argc, char** argv)
 	// Open file to which data will be written
 	FILE *Ofile;
 	// Only have the first processor control the file
-	if(rank == 0)
+	if(rank == size - 1)
 	{
 		Ofile = fopen("Data.txt","w");
 	}
@@ -89,9 +95,9 @@ int main(int argc, char** argv)
 			curNodeTemp = 0;
 
 	// Flags
-	bool changed = false,
-		 endLoop = false;
-	int done = 0;
+	bool endLoop = false;
+	int  done 	 = 0,
+		 changed = 0;
 
 	// Set initial temperature
 	if(nLoopZ == 0)
@@ -121,6 +127,8 @@ int main(int argc, char** argv)
 
 	while(done == 0)
 	{
+//std::cout << rank << " is still working\n";
+		cnt++;
 		for(int z = nLoopZ; z < nLoopZ + dZ; z++)
 		{
 			if(z != 0 && z != k-1)
@@ -154,21 +162,11 @@ int main(int argc, char** argv)
 		}
 		endLoop = false;
 
-		if(cnt == 0 && rank == 0)
-		{
-			for(int z = nLoopZ; z < nLoopZ + dZ; z++)
-			{
-				fprintf(Ofile,"%i,%f\n", cnt, nodes[z][0][0]);
-			}
-		}
-		cnt++;
-
-		if( !changed )
+		if( changed == 0 )
 		{
 			if(nodes[k-2][nLoopY][nLoopX] > defltTemp + minChg || nodes[k-2][nLoopY][nLoopX] < defltTemp - minChg)
 			{
-				changed = true;
-				MPI_Bcast(&changed, 1, MPI::BOOL, rank, cartComm);
+				changed = 1;
 			}
 		}
 		//  ASUMPTION that the loop in which it initially changes is not the same 
@@ -184,17 +182,22 @@ int main(int argc, char** argv)
 			}
 		}
 
-		// If one processor meets the ending requirements then send that to
-		// all processors so they can quit working
-		MPI_Allreduce( MPI_IN_PLACE, &done, 1, MPI_INT, MPI_MAX, cartComm);
+		if(cnt%100 == 0 || done > 0)
+		{
+			// If one processor meets the ending requirements then send that to
+			// all processors so they can quit working
+			MPI_Allreduce( MPI_IN_PLACE, &done, 1, MPI_INT, MPI_MAX, cartComm);
 
-		// Make sure all data is up to date at the end of every time step
-		MPI_Allreduce( MPI_IN_PLACE, &nodes, i*j*k, MPI_DOUBLE, MPI_MAX, cartComm);
+			// Make sure all data is up to date at the end of every 100th time step
+			MPI_Allreduce( MPI_IN_PLACE, &nodes, i*j*k, MPI_DOUBLE, MPI_MAX, cartComm);
+			MPI_Allreduce( MPI_IN_PLACE, &changed, 1, MPI_INT, MPI_MAX, cartComm);	
+		}
 	}
 	// Note when a processor exits the loop
 	// std::cout << "Node " << rank << " is out\n";
-	// When node 0 exits have it write out to the data file
-	if(rank == 0)
+	
+	// When the last node exits have it write out to the data file
+	if(rank == size - 1)
 	{
 		for(int z = 0; z < k; z++)
 		{
@@ -207,6 +210,22 @@ int main(int argc, char** argv)
 
 	MPI_Finalize();
 	return 0;
+}
+
+void   setDims(int &nSize)
+{
+	int tmpDim = (int)floor(pow((double)nSize,0.33333333333333333333));
+	int tmpSize = nSize / tmpDim;
+
+	dims[0] = tmpDim;
+
+	tmpDim = (int)floor(pow((double)tmpSize,0.5));
+
+	dims[1] = tmpDim;
+
+	tmpDim = tmpSize / tmpDim;
+
+	dims[2] = tmpDim;	
 }
 
 double update(int &x, int &y, int &z)
