@@ -2,11 +2,10 @@
 #include <stdio.h>
 #include <math.h>
 #include <mpi.h>
-#include <string>
 
 double update(int &x,int &y,int &z);
 void   setDims(int &nSize);
-
+void   setNeighbors();
 //**************************************************
 //  Global Variables
 //**************************************************
@@ -41,12 +40,27 @@ int ndims = 3,
 	reorder = 0,
 	coords[3];
 
+int rank, size;
+
+bool left	= false,
+	 right	= false,
+	 top	= false,
+	 bottom	= false,
+	 front	= false,
+	 back	= false;
+
+int  nLeft		= -1,
+	 nRight		= -1,
+	 nTop		= -1,
+	 nBottom	= -1,
+	 nFront		= -1,
+	 nBack		= -1;
+
 //**************************************************
 //  Main Program
 //**************************************************
 int main(int argc, char** argv)
 {
-	int rank, size;
 	int nLoopX = 0, nLoopY = 0, nLoopZ = 0;
 
 	MPI_Init(&argc, &argv);
@@ -71,6 +85,8 @@ int main(int argc, char** argv)
 	nLoopX = coords[0] * dX;
 	nLoopY = coords[1] * dY;
 	nLoopZ = coords[2] * dZ;
+
+//	setNeihbors();
 
 	// Open file to which data will be written
 	FILE *Ofile;
@@ -124,6 +140,48 @@ int main(int argc, char** argv)
 	// Make sure all of the initalization is done
 //	MPI_Barrier(cartComm);
 	MPI_Allreduce( MPI_IN_PLACE, &nodes, i*j*k, MPI_DOUBLE, MPI_MAX, cartComm );
+
+/*	// Dynamically create data arrays
+	if(left)
+	{
+		double* vLeft	= (double*) malloc(nLoopY * nLoopZ * sizeof(double));
+		for(int z = nLoopZ; z < nLoopZ + dZ; z++)
+		{
+			for(int y = nLoopY; y < nLoopY + dY; y++)
+			{
+				vLeft[z - nLoopZ][y - nLoopY] = nodes[z][y][nLoopX];
+			}
+		}
+	}
+	if(right)
+	{
+		double* vRight	= (double*) malloc(nLoopY * nLoopZ * sizeof(double));
+		for(int z = nLoopZ; z < nLoopZ + dZ; z++)
+		{
+			for(int y = nLoopY; y < nLoopY + dY; y++)
+			{
+				vLeft[z - nLoopZ][y - nLoopY] = nodes[z][y][nLoopX + dX];
+			}
+		}
+	}
+	if (top)
+	{
+		double* vTop	= (double*) malloc(nLoopX * nLoopZ * sizeof(double));
+	}
+	if (bottom)
+	{
+		double* vBottom	= (double*) malloc(nLoopX * nLoopZ * sizeof(double));
+	}
+	if (front)
+	{
+		double* vFront	= (double*) malloc(nLoopX * nLoopY * sizeof(double));
+	}
+	if (back)
+	{
+		double* vBack	= (double*) malloc(nLoopX * nLoopY * sizeof(double));
+	}
+*/
+
 
 	while(done == 0)
 	{
@@ -212,7 +270,40 @@ int main(int argc, char** argv)
 	return 0;
 }
 
-void   setDims(int &nSize)
+void setNeighbors()
+{
+	// left
+	MPI_Cart_shift(cartComm, 0, -1, rank, nLeft);
+	if(nLeft >=0 && nLeft <=size)
+		left = true;
+
+	// right
+	MPI_Cart_shift(cartComm, 0, 1, rank, nRight);
+	if(nRight >=0 && nRight <=size)
+		right = true;
+
+	// top
+	MPI_Cart_shift(cartComm, 1, 1, rank, nTop);
+	if(nTop >=0 && nTop <=size)
+		top = true;
+
+	// bottom
+	MPI_Cart_shift(cartComm, 1, -1, rank, nBottom);
+	if(nBottom >=0 && nBottom <=size)
+		bottom = true;
+
+	// front
+	MPI_Cart_shift(cartComm, 2, -1, rank, nFront);
+	if(nFront >=0 && nFront <=size)
+		front = true;
+
+	// back
+	MPI_Cart_shift(cartComm, 2, 1, rank, nBack);
+	if(nBack >=0 && nBack <=size)
+		back = true;
+}
+
+void setDims(int &nSize)
 {
 	int tmpDim = (int)floor(pow((double)nSize,0.33333333333333333333));
 	int tmpSize = nSize / tmpDim;
