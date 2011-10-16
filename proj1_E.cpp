@@ -62,7 +62,7 @@ int ndims = 3,
 	coords[3];
 
 // processor rank and group size
-int rank, size;
+int rank, size, source;
 
 // flags to check neighbors existence
 bool left	= false,
@@ -89,22 +89,24 @@ int dX = 0,
 //**************************************************
 int main(int argc, char** argv)
 {
+//std::cout << rank << "Entered Program\n";
 	int nLoopX = 0, nLoopY = 0, nLoopZ = 0;
 
 	MPI_Init(&argc, &argv);
 	oldComm = MPI_COMM_WORLD;
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 	MPI_Comm_size(MPI_COMM_WORLD, &size);
-
+std::cout << "rank: " << rank << " size" << size << "\n";
+//std::cout << "Created comms\n";
 	setDims(size);
-
+//std::cout << "Set Dims\n";
 	// Creates a cartesian communicator
 	MPI_Cart_create(oldComm, ndims, dims, 
 					periods, reorder, &cartComm);
-
+//std::cout << "Set cartComm\n";
 	// Get the coordinates of this processor
 	MPI_Cart_coords(cartComm, rank, 3, coords);
-
+//std::cout << "Got Coords\n";
 	dX = i / dims[0];
 	dY = j / dims[1];
 	dZ = k / dims[2];
@@ -113,7 +115,7 @@ int main(int argc, char** argv)
 	nLoopX = coords[0] * dX;
 	nLoopY = coords[1] * dY;
 	nLoopZ = coords[2] * dZ;
-
+//std::cout << "Set nLoop... Variables\n";
 	// Dynamically create a 3d array to store values
 	core = new double**[dZ-2];
 	for (int r = 0; r < dZ-2; ++r)
@@ -123,7 +125,7 @@ int main(int argc, char** argv)
 		for (int q = 0; q < dY-2; ++q)
  			core[r][q] = new double[dX-2];
 	}
-	
+//std::cout << "Created Core\n";	
 	// initialize core array
 	for(int r = 0; r < dZ-2; r++)
 	{
@@ -135,7 +137,7 @@ int main(int argc, char** argv)
 			}
 		}
 	}
-
+//std::cout << "Initialized Core\n";
 	// Determine what neighbors are around
 	setNeighbors();
 
@@ -146,6 +148,7 @@ int main(int argc, char** argv)
 	if(rank == size - 1)
 	{
 		Ofile = fopen("Data.txt","w");
+		std::cout << rank << " opened File\n";
 	}
 
 	int cnt = 0;		// loop counter
@@ -199,7 +202,7 @@ int main(int argc, char** argv)
     	recvFront[q] = new double[dX];
     	recvBack[q]	 = new double[dX];
 	}
-
+//std::cout << "Created send recv arrays\n";
 	// Initialize face arrays
 	for(int z = 0; z < dZ; z++)
 	{
@@ -231,7 +234,7 @@ int main(int argc, char** argv)
 			recvBack[y][x]	= 0;
 		}
 	}
-
+//std::cout << "Initiallized send recv arrays\n";
 	// Set initial temperature
 	if(nLoopZ == 0)
 	{
@@ -253,11 +256,13 @@ int main(int argc, char** argv)
 			}
 		}
 	}
+//std::cout << "Initiallized temp in core\n" << "Starting while loop now.\n";
 
 	int zero = 0;
 	while(done == 0)
 	{
-//std::cout << rank << " is still working\n";
+std::cout << rank << " is still working\n";
+std::cout << "core [dZ - 3][dY - 3][dX - 3] = " << core[dZ-3][dY-3][dX-3] << "\n";
 		cnt++;
 		for(int z = 0; z < dZ-2; z++)
 		{
@@ -265,6 +270,7 @@ int main(int argc, char** argv)
 			{
 				for(int x = 0; x < dX-2; x++)
 				{
+std::cout << rank << " in loop " << cnt << "\n";
 					// Update core 3D array
 					curNodeTemp = updateCore(x, y, z);
 					core[z][y][x] = curNodeTemp;
@@ -291,6 +297,7 @@ int main(int argc, char** argv)
 		endLoop = false;
 
 		// Update each face
+std::cout << rank << " updating LEFT and RIGHT\n";
 		for(int z = 0; z < dZ; z++)
 		{
 			for(int y = 0; y < dY; y++)
@@ -299,6 +306,7 @@ int main(int argc, char** argv)
 				sendRight[z][y] = updateFace(dX-1, y, z, RIGHT);
 			}
 		}
+std::cout << rank << " updating TOP and BOTTOM\n";
 		for(int z = 0; z < dZ; z++)
 		{
 			for(int x = 0; x < dX; x++)
@@ -307,6 +315,7 @@ int main(int argc, char** argv)
 				sendBottom[z][x] = updateFace(x, zero, z, BOTTOM);
 			}
 		}
+std::cout << rank << " updating FRONT and BACK\n";
 		for(int y = 0; y < dY; y++)
 		{
 			for(int x = 0; x < dX; x++)
@@ -320,8 +329,8 @@ int main(int argc, char** argv)
 			}
 		}
 
-		if(nLoopZ + dZ == k)
-		{
+//		if(nLoopZ + dZ == k)
+//		{
 			if( changed == 0 )
 			{
 				if(sendBack[0][0] > defltTemp + minChg || sendBack[0][0] < defltTemp - minChg)
@@ -339,17 +348,19 @@ int main(int argc, char** argv)
 				if(diff < minDiff)
 				{
 					done = 1;
+					std::cout << "DONE\n\n";
 				}
 			}
-		}
+//		}
 
-		if(cnt%100 == 0 || done > 0)
+		if(cnt%1 == 0 || done > 0)
 		{
 			// If one processor meets the ending requirements then send that to
 			// all processors so they can quit working
+std::cout << rank << " Performing an allreduce for done\n";
 			MPI_Allreduce( MPI_IN_PLACE, &done, 1, MPI_INT, MPI_MAX, cartComm);
 		}
-
+std::cout << rank << " Sending Data\n";
 		sendData();
 	}
 
@@ -422,32 +433,32 @@ std::cout << "Node " << rank << " is out\n";
 void setNeighbors()
 {
 	// left
-	MPI_Cart_shift(cartComm, 0, -1, &rank, &nLeft);
+	MPI_Cart_shift(cartComm, 0, -1, &source, &nLeft);
 	if(nLeft >=0 && nLeft <=size)
 		left = true;
 
 	// right
-	MPI_Cart_shift(cartComm, 0, 1, &rank, &nRight);
+	MPI_Cart_shift(cartComm, 0, 1, &source, &nRight);
 	if(nRight >=0 && nRight <=size)
 		right = true;
 
 	// top
-	MPI_Cart_shift(cartComm, 1, 1, &rank, &nTop);
+	MPI_Cart_shift(cartComm, 1, 1, &source, &nTop);
 	if(nTop >=0 && nTop <=size)
 		top = true;
 
 	// bottom
-	MPI_Cart_shift(cartComm, 1, -1, &rank, &nBottom);
+	MPI_Cart_shift(cartComm, 1, -1, &source, &nBottom);
 	if(nBottom >=0 && nBottom <=size)
 		bottom = true;
 
 	// front
-	MPI_Cart_shift(cartComm, 2, -1, &rank, &nFront);
+	MPI_Cart_shift(cartComm, 2, -1, &source, &nFront);
 	if(nFront >=0 && nFront <=size)
 		front = true;
 
 	// back
-	MPI_Cart_shift(cartComm, 2, 1, &rank, &nBack);
+	MPI_Cart_shift(cartComm, 2, 1, &source, &nBack);
 	if(nBack >=0 && nBack <=size)
 		back = true;
 }
@@ -583,13 +594,13 @@ double updateFace(const int &x, const int &y, const int &z, Face fFace)
 		   zM1=0,
 		   nCur=0;
 
-std::cout << fFace << "\n";
-
 	if( fFace == LEFT)
 	{
 		nCur = sendLeft[z][y];
-		if(y > 0 && y < dY && z > 0 && z < dZ)
+		if(y > 0 && y < dY-1 && z > 0 && z < dZ-1)
+		{
 			xP1=core[z-1][y-1][0];
+		}
 		else if(y == 0)
 			xP1=sendBottom[z][x];
 		else if (y == dY-1)
@@ -599,7 +610,7 @@ std::cout << fFace << "\n";
 		else if (z == dZ-1)
 			xP1=sendBack[y][x];
 		xM1=recvLeft[z][y];
-
+		
 		if(y+1 < dY)
 			yP1=sendLeft[z][y+1];
 		else
@@ -660,8 +671,8 @@ std::cout << fFace << "\n";
 	{
 		nCur = sendRight[z][y];
 		xP1=recvRight[z][y];
-		if(y > 0 && y < dY && z > 0 && z < dZ)
-			xM1=core[z-1][y-1][dX-2];
+		if(y > 0 && y < dY-1 && z > 0 && z < dZ-1)
+			xM1=core[z-1][y-1][dX-3];
 		else if(y == 0)
 			xM1=sendBottom[z][x];
 		else if (y == dY-1)
@@ -760,8 +771,8 @@ std::cout << fFace << "\n";
 		}
 
 		yP1=recvTop[z][x];
-		if(x > 0 && x < dX && z > 0 && z < dZ)
-			yM1=core[z-1][dY-2][x-1];
+		if(x > 0 && x < dX-1 && z > 0 && z < dZ-1)
+			yM1=core[z-1][dY-3][x-1];
 		else if(x == 0)
 			yM1=sendLeft[z][y];
 		else if (x == dX-1)
@@ -832,7 +843,7 @@ std::cout << fFace << "\n";
 		}
 
 		yM1=recvBottom[z][x];
-		if(x > 0 && x < dX && z > 0 && z < dZ)
+		if(x > 0 && x < dX-1 && z > 0 && z < dZ-1)
 			yP1=core[z-1][0][x-1];
 		else if(x == 0)
 			yP1=sendLeft[z][y];
@@ -932,8 +943,8 @@ std::cout << fFace << "\n";
 		}
 
 		zM1=recvFront[y][x];
-		if(x > 0 && x < dX && y > 0 && y < dY)
-			zP1=core[dZ-2][y-1][x-1];
+		if(x > 0 && x < dX-1 && y > 0 && y < dY-1)
+			zP1=core[dZ-3][y-1][x-1];
 		else if(x == 0)
 			zP1=sendLeft[z][y];
 		else if (x == dX-1)
@@ -1004,8 +1015,8 @@ std::cout << fFace << "\n";
 		}
 
 		zP1=recvBack[y][x];
-		if(x > 0 && x < dX && y > 0 && y < dY)
-			zM1=core[dZ-2][y-1][x-1];
+		if(x > 0 && x < dX-1 && y > 0 && y < dY-1)
+			zM1=core[dZ-3][y-1][x-1];
 		else if(x == 0)
 			zM1=sendLeft[z][y];
 		else if (x == dX-1)
@@ -1025,94 +1036,60 @@ std::cout << fFace << "\n";
 
 void sendData()
 {
-	if( coords[0]%2 == 0 )
+	if(left)
 	{
-		if(left)
-		{
-			MPI_Recv(recvLeft, dY*dZ, MPI_DOUBLE,
-					 nLeft, nLeft, oldComm, MPI_STATUS_IGNORE);
-			MPI_Send(sendLeft, dY*dZ, MPI_DOUBLE,
-					 nLeft, nLeft, oldComm);
-		}
-		if(right)
-		{
-			MPI_Recv(recvRight, dY*dZ, MPI_DOUBLE,
-					 nRight, nRight, oldComm, MPI_STATUS_IGNORE);
-			MPI_Send(sendRight, dY*dZ, MPI_DOUBLE,
-					 nRight, nRight, oldComm);
-		}
-		if(top)
-		{
-			MPI_Recv(recvTop, dX*dZ, MPI_DOUBLE,
-					 nTop, nTop, oldComm, MPI_STATUS_IGNORE);
-			MPI_Send(sendTop, dX*dZ, MPI_DOUBLE,
-					 nTop, nTop, oldComm);
-		}
-		if(bottom)
-		{
-			MPI_Recv(recvBottom, dX*dZ, MPI_DOUBLE,
-					 nBottom, nBottom, oldComm, MPI_STATUS_IGNORE);
-			MPI_Send(sendBottom, dX*dZ, MPI_DOUBLE,
-					 nBottom, nBottom, oldComm);
-		}
-		if(front)
-		{
-			MPI_Recv(recvFront, dY*dX, MPI_DOUBLE,
-					 nFront, nFront, oldComm, MPI_STATUS_IGNORE);
-			MPI_Send(sendFront, dY*dX, MPI_DOUBLE,
-					 nFront, nFront, oldComm);
-		}
-		if(back)
-		{
-			MPI_Recv(recvBack, dY*dX, MPI_DOUBLE,
-					 nBack, nBack, oldComm, MPI_STATUS_IGNORE);
-			MPI_Send(sendBack, dY*dX, MPI_DOUBLE,
-					 nBack, nBack, oldComm);
-		}
+		MPI_Sendrecv(sendLeft, dY*dZ, MPI_DOUBLE, 
+               		 nLeft, nLeft,
+               		 recvLeft, dY*dZ, MPI_DOUBLE, 
+               		 nLeft, rank,
+               		 oldComm, MPI_STATUS_IGNORE);
+std::cout << rank << " sent Left\n";
 	}
-	else
+	if(right)
 	{
-		if(left)
-		{
-			MPI_Send(sendLeft, dY*dZ, MPI_DOUBLE,
-					 nLeft, nLeft, oldComm);
-			MPI_Recv(recvLeft, dY*dZ, MPI_DOUBLE,
-					 nLeft, nLeft, oldComm, MPI_STATUS_IGNORE);
-		}
-		if(right)
-		{
-			MPI_Send(sendRight, dY*dZ, MPI_DOUBLE,
-					 nRight, nRight, oldComm);
-			MPI_Recv(recvLeft, dY*dZ, MPI_DOUBLE,
-					 nLeft, nLeft, oldComm, MPI_STATUS_IGNORE);
-		}
-		if(top)
-		{
-			MPI_Send(sendTop, dX*dZ, MPI_DOUBLE,
-					 nTop, nTop, oldComm);
-			MPI_Recv(recvTop, dX*dZ, MPI_DOUBLE,
-					 nTop, nTop, oldComm, MPI_STATUS_IGNORE);
-		}
-		if(bottom)
-		{
-			MPI_Send(sendBottom, dX*dZ, MPI_DOUBLE,
-					 nBottom, nBottom, oldComm);
-			MPI_Recv(recvBottom, dX*dZ, MPI_DOUBLE,
-					 nBottom, nBottom, oldComm, MPI_STATUS_IGNORE);
-		}
-		if(front)
-		{
-			MPI_Send(sendFront, dY*dX, MPI_DOUBLE,
-					 nFront, nFront, oldComm);
-			MPI_Recv(recvFront, dY*dX, MPI_DOUBLE,
-					 nFront, nFront, oldComm, MPI_STATUS_IGNORE);
-		}
-		if(back)
-		{
-			MPI_Send(sendBack, dY*dX, MPI_DOUBLE,
-					 nBack, nBack, oldComm);
-			MPI_Recv(recvBack, dY*dX, MPI_DOUBLE,
-					 nBack, nBack, oldComm, MPI_STATUS_IGNORE);
-		}
+		MPI_Sendrecv(sendRight, dY*dZ, MPI_DOUBLE, 
+               		 nRight, nRight,
+               		 recvRight, dY*dZ, MPI_DOUBLE, 
+               		 nRight, rank,
+               		 oldComm, MPI_STATUS_IGNORE);
+
+std::cout << rank << " sent Right\n";
+	}
+	if(top)
+	{
+		MPI_Sendrecv(sendTop, dX*dZ, MPI_DOUBLE, 
+               		 nTop, nTop,
+               		 recvTop, dX*dZ, MPI_DOUBLE, 
+               		 nTop, rank,
+               		 oldComm, MPI_STATUS_IGNORE);
+std::cout << rank << " sent Top\n";
+	}
+	if(bottom)
+	{
+		MPI_Sendrecv(sendBottom, dX*dZ, MPI_DOUBLE, 
+               		 nBottom, nBottom,
+               		 recvLeft, dX*dZ, MPI_DOUBLE, 
+               		 nBottom, rank,
+               		 oldComm, MPI_STATUS_IGNORE);
+std::cout << rank << " sent Bottom\n";
+	}
+
+	if(front)
+	{
+		MPI_Sendrecv(sendFront, dY*dX, MPI_DOUBLE, 
+               		 nFront, nFront,
+               		 recvFront, dY*dX, MPI_DOUBLE, 
+               		 nFront, rank,
+               		 oldComm, MPI_STATUS_IGNORE);
+std::cout << rank << " sent Front\n";
+	}
+	if(back)
+	{
+		MPI_Sendrecv(sendBack, dY*dX, MPI_DOUBLE, 
+               		 nBack, nBack,
+               		 recvBack, dY*dX, MPI_DOUBLE, 
+               		 nBack, rank,
+               		 oldComm, MPI_STATUS_IGNORE);
+std::cout << rank << " sent Back\n";
 	}
 }
