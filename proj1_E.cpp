@@ -6,14 +6,32 @@
 // Enumerated type to send to updateFace to know what face to update
 enum Face { LEFT, RIGHT, TOP, BOTTOM, FRONT, BACK };
 
-double updateFace(int &x, int &y, int &z, Face fFace);
-double updateCore(int &x, int &y, int &z);
+double updateFace(const int &x, const int &y, const int &z, Face fFace);
+double updateCore(const int &x, const int &y, const int &z);
 
-void   setDims(int &nSize);
-void   setNeighbors();
+void setDims(int &nSize);
+void setNeighbors();
+void sendData();
 //**************************************************
 //  Global Variables
 //**************************************************
+
+double ***core;
+// Dynamically create send data arrays
+double** sendLeft;
+double** sendRight;
+double** sendTop;
+double** sendBottom;
+double** sendFront;
+double** sendBack;
+
+// Dynamically create recv data array
+double** recvLeft;
+double** recvRight;
+double** recvTop;
+double** recvBottom;
+double** recvFront;
+double** recvBack;
 
 // 1 over the step size in each direction 
 // and default Temp
@@ -62,22 +80,9 @@ int  nLeft		= -1,
 	 nFront		= -1,
 	 nBack		= -1;
 
-double ***core;
-// Dynamically create send data arrays
-double** sendLeft;
-double** sendRight;
-double** sendTop;
-double** sendBottom;
-double** sendFront;
-double** sendBack;
-
-// Dynamically create recv data array
-double** recvLeft;
-double** recvRight;
-double** recvTop;
-double** recvBottom;
-double** recvFront;
-double** recvBack;
+int dX = 0,
+	dY = 0,
+	dZ = 0;
 
 //**************************************************
 //  Main Program
@@ -91,6 +96,8 @@ int main(int argc, char** argv)
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 	MPI_Comm_size(MPI_COMM_WORLD, &size);
 
+	setDims(size);
+
 	// Creates a cartesian communicator
 	MPI_Cart_create(oldComm, ndims, dims, 
 					periods, reorder, &cartComm);
@@ -98,11 +105,9 @@ int main(int argc, char** argv)
 	// Get the coordinates of this processor
 	MPI_Cart_coords(cartComm, rank, 3, coords);
 
-	setDims(size);
-
-	int dX = i / dims[0],
-		dY = j / dims[1],
-		dZ = k / dims[2];
+	dX = i / dims[0];
+	dY = j / dims[1];
+	dZ = k / dims[2];
 
 	// Set the start points for the loops
 	nLoopX = coords[0] * dX;
@@ -161,26 +166,38 @@ int main(int argc, char** argv)
 	// Dynamically set array sizes
 	sendLeft 	= new double*[dZ];
 	sendRight	= new double*[dZ];
+	recvLeft 	= new double*[dZ];
+	recvRight	= new double*[dZ];
 	for (int r = 0; r < dZ; ++r)
 	{
     	sendLeft[r]  = new double[dY];
     	sendRight[r] = new double[dY];
+    	recvLeft[r]  = new double[dY];
+    	recvRight[r] = new double[dY];
 	}
 
 	sendTop		= new double*[dZ];
 	sendBottom	= new double*[dZ];
+	recvTop		= new double*[dZ];
+	recvBottom	= new double*[dZ];
 	for (int r = 0; r < dZ; ++r)
 	{
     	sendTop[r]    = new double[dX];
     	sendBottom[r] = new double[dX];
+    	recvTop[r]    = new double[dX];
+    	recvBottom[r] = new double[dX];
 	}
 
 	sendFront 	= new double*[dY];
 	sendBack	= new double*[dY];
+	recvFront 	= new double*[dY];
+	recvBack	= new double*[dY];
 	for (int q = 0; q < dY; ++q)
 	{
     	sendFront[q] = new double[dX];
     	sendBack[q]	 = new double[dX];
+    	recvFront[q] = new double[dX];
+    	recvBack[q]	 = new double[dX];
 	}
 
 	// Initialize face arrays
@@ -278,16 +295,16 @@ int main(int argc, char** argv)
 		{
 			for(int y = 0; y < dY; y++)
 			{
-				updateFace(zero, y, z, LEFT);
-				updateFace(dX, y, z, RIGHT);
+				sendLeft[z][y]  = updateFace(zero, y, z, LEFT);
+				sendRight[z][y] = updateFace(dX-1, y, z, RIGHT);
 			}
 		}
 		for(int z = 0; z < dZ; z++)
 		{
 			for(int x = 0; x < dX; x++)
 			{
-				updateFace(x, dY, z, TOP);
-				updateFace(x, zero, z, BOTTOM);
+				sendTop[z][x]    = updateFace(x, dY-1, z, TOP);
+				sendBottom[z][x] = updateFace(x, zero, z, BOTTOM);
 			}
 		}
 		for(int y = 0; y < dY; y++)
@@ -297,9 +314,9 @@ int main(int argc, char** argv)
 				// Only update front and back if they are not
 				// the very front or very back
 				if(nLoopZ != 0)
-					updateFace(x, y, zero, FRONT);
+					sendFront[y][x] = updateFace(x, y, zero, FRONT);
 				if(nLoopZ + dZ != k)
-					updateFace(x, y, dZ, BACK);
+					sendBack[y][x]  = updateFace(x, y, dZ-1, BACK);
 			}
 		}
 
@@ -332,10 +349,12 @@ int main(int argc, char** argv)
 			// all processors so they can quit working
 			MPI_Allreduce( MPI_IN_PLACE, &done, 1, MPI_INT, MPI_MAX, cartComm);
 		}
+
+		sendData();
 	}
 
 	// Note when a processor exits the loop
-	// std::cout << "Node " << rank << " is out\n";
+std::cout << "Node " << rank << " is out\n";
 	
 	// When the last node exits have it write out to the data file
 	if(rank == size - 1)
@@ -352,18 +371,24 @@ int main(int argc, char** argv)
 	{
 		delete [] sendLeft[r];
 		delete [] sendRight[r];
+		delete [] recvLeft[r];
+		delete [] recvRight[r];
 	}
 
 	for (int r = 0; r < dZ; ++r)
 	{
 		delete [] sendTop[r];
 		delete [] sendBottom[r];
+		delete [] recvTop[r];
+		delete [] recvBottom[r];
 	}
 
 	for (int q = 0; q < dY; ++q)
 	{
 		delete [] sendFront[q];
 		delete [] sendBack[q];
+		delete [] recvFront[q];
+		delete [] recvBack[q];
 	}
 
 	for (int q = 0; q < dY; ++q)
@@ -382,7 +407,13 @@ int main(int argc, char** argv)
 	delete [] sendTop;
 	delete [] sendBottom;
 	delete [] sendFront;
-	delete [] sendBottom;
+	delete [] sendBack;
+	delete [] recvLeft;
+	delete [] recvRight;
+	delete [] recvTop;
+	delete [] recvBottom;
+	delete [] recvFront;
+	delete [] recvBack;
 
 	MPI_Finalize();
 	return 0;
@@ -437,7 +468,7 @@ void setDims(int &nSize)
 	dims[2] = tmpDim;	
 }
 
-double updateCore(int &x, int &y, int &z)
+double updateCore(const int &x, const int &y, const int &z)
 {
 	double result = 0;
 
@@ -540,7 +571,7 @@ double updateCore(int &x, int &y, int &z)
 	return result;
 }
 
-double updateFace(int &x, int &y, int &z, Face fFace)
+double updateFace(const int &x, const int &y, const int &z, Face fFace)
 {
 	double result = 0;
 
@@ -551,6 +582,8 @@ double updateFace(int &x, int &y, int &z, Face fFace)
 		   zP1=0,
 		   zM1=0,
 		   nCur=0;
+
+std::cout << fFace << "\n";
 
 	if( fFace == LEFT)
 	{
@@ -988,4 +1021,98 @@ double updateFace(int &x, int &y, int &z, Face fFace)
 					 + pow((double)dl,2)*(zM1-2*nCur+zP1)) + nCur;
 
 	return result;
+}
+
+void sendData()
+{
+	if( coords[0]%2 == 0 )
+	{
+		if(left)
+		{
+			MPI_Recv(recvLeft, dY*dZ, MPI_DOUBLE,
+					 nLeft, nLeft, oldComm, MPI_STATUS_IGNORE);
+			MPI_Send(sendLeft, dY*dZ, MPI_DOUBLE,
+					 nLeft, nLeft, oldComm);
+		}
+		if(right)
+		{
+			MPI_Recv(recvRight, dY*dZ, MPI_DOUBLE,
+					 nRight, nRight, oldComm, MPI_STATUS_IGNORE);
+			MPI_Send(sendRight, dY*dZ, MPI_DOUBLE,
+					 nRight, nRight, oldComm);
+		}
+		if(top)
+		{
+			MPI_Recv(recvTop, dX*dZ, MPI_DOUBLE,
+					 nTop, nTop, oldComm, MPI_STATUS_IGNORE);
+			MPI_Send(sendTop, dX*dZ, MPI_DOUBLE,
+					 nTop, nTop, oldComm);
+		}
+		if(bottom)
+		{
+			MPI_Recv(recvBottom, dX*dZ, MPI_DOUBLE,
+					 nBottom, nBottom, oldComm, MPI_STATUS_IGNORE);
+			MPI_Send(sendBottom, dX*dZ, MPI_DOUBLE,
+					 nBottom, nBottom, oldComm);
+		}
+		if(front)
+		{
+			MPI_Recv(recvFront, dY*dX, MPI_DOUBLE,
+					 nFront, nFront, oldComm, MPI_STATUS_IGNORE);
+			MPI_Send(sendFront, dY*dX, MPI_DOUBLE,
+					 nFront, nFront, oldComm);
+		}
+		if(back)
+		{
+			MPI_Recv(recvBack, dY*dX, MPI_DOUBLE,
+					 nBack, nBack, oldComm, MPI_STATUS_IGNORE);
+			MPI_Send(sendBack, dY*dX, MPI_DOUBLE,
+					 nBack, nBack, oldComm);
+		}
+	}
+	else
+	{
+		if(left)
+		{
+			MPI_Send(sendLeft, dY*dZ, MPI_DOUBLE,
+					 nLeft, nLeft, oldComm);
+			MPI_Recv(recvLeft, dY*dZ, MPI_DOUBLE,
+					 nLeft, nLeft, oldComm, MPI_STATUS_IGNORE);
+		}
+		if(right)
+		{
+			MPI_Send(sendRight, dY*dZ, MPI_DOUBLE,
+					 nRight, nRight, oldComm);
+			MPI_Recv(recvLeft, dY*dZ, MPI_DOUBLE,
+					 nLeft, nLeft, oldComm, MPI_STATUS_IGNORE);
+		}
+		if(top)
+		{
+			MPI_Send(sendTop, dX*dZ, MPI_DOUBLE,
+					 nTop, nTop, oldComm);
+			MPI_Recv(recvTop, dX*dZ, MPI_DOUBLE,
+					 nTop, nTop, oldComm, MPI_STATUS_IGNORE);
+		}
+		if(bottom)
+		{
+			MPI_Send(sendBottom, dX*dZ, MPI_DOUBLE,
+					 nBottom, nBottom, oldComm);
+			MPI_Recv(recvBottom, dX*dZ, MPI_DOUBLE,
+					 nBottom, nBottom, oldComm, MPI_STATUS_IGNORE);
+		}
+		if(front)
+		{
+			MPI_Send(sendFront, dY*dX, MPI_DOUBLE,
+					 nFront, nFront, oldComm);
+			MPI_Recv(recvFront, dY*dX, MPI_DOUBLE,
+					 nFront, nFront, oldComm, MPI_STATUS_IGNORE);
+		}
+		if(back)
+		{
+			MPI_Send(sendBack, dY*dX, MPI_DOUBLE,
+					 nBack, nBack, oldComm);
+			MPI_Recv(recvBack, dY*dX, MPI_DOUBLE,
+					 nBack, nBack, oldComm, MPI_STATUS_IGNORE);
+		}
+	}
 }
