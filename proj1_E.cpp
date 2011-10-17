@@ -9,7 +9,7 @@ enum Face { LEFT, RIGHT, TOP, BOTTOM, FRONT, BACK };
 double updateFace(const int &x, const int &y, const int &z, Face fFace);
 double updateCore(const int &x, const int &y, const int &z);
 
-void setDims(int &nSize);
+void setDims();
 void setNeighbors();
 void sendData();
 //**************************************************
@@ -35,9 +35,9 @@ double** recvBack;
 
 // 1 over the step size in each direction 
 // and default Temp
-const double dw = 20, // X
-	   		 dh = 20, // Y
-	    	 dl = 20, // Z
+const double dw = 50, // X
+	   		 dh = 50, // Y
+	    	 dl = 50, // Z
 			 defltTemp = 0;
 
 // Physical Dimensions of the box
@@ -50,8 +50,14 @@ const int i = (int)(w*dw),
 	  	  j = (int)(h*dh),
 		  k = (int)(l*dl);
 
+double	lastTemp = defltTemp,
+		diff = 0,
+		minDiff = 2E-5,
+		minChg = 1E-2,
+		curNodeTemp = 0;
+
 // Thermal defusivity and time step
-double alpha=1, dt=1E-5;
+double alpha=1, dt=5E-5;
 
 // Cartesian communicator variables
 MPI_Comm oldComm, cartComm;
@@ -97,16 +103,16 @@ int main(int argc, char** argv)
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 	MPI_Comm_size(MPI_COMM_WORLD, &size);
 std::cout << "rank: " << rank << " size" << size << "\n";
-//std::cout << "Created comms\n";
-	setDims(size);
-//std::cout << "Set Dims\n";
+
+	setDims();
+
 	// Creates a cartesian communicator
 	MPI_Cart_create(oldComm, ndims, dims, 
 					periods, reorder, &cartComm);
-//std::cout << "Set cartComm\n";
+
 	// Get the coordinates of this processor
 	MPI_Cart_coords(cartComm, rank, 3, coords);
-//std::cout << "Got Coords\n";
+
 	dX = i / dims[0];
 	dY = j / dims[1];
 	dZ = k / dims[2];
@@ -115,7 +121,7 @@ std::cout << "rank: " << rank << " size" << size << "\n";
 	nLoopX = coords[0] * dX;
 	nLoopY = coords[1] * dY;
 	nLoopZ = coords[2] * dZ;
-//std::cout << "Set nLoop... Variables\n";
+
 	// Dynamically create a 3d array to store values
 	core = new double**[dZ-2];
 	for (int r = 0; r < dZ-2; ++r)
@@ -125,7 +131,7 @@ std::cout << "rank: " << rank << " size" << size << "\n";
 		for (int q = 0; q < dY-2; ++q)
  			core[r][q] = new double[dX-2];
 	}
-//std::cout << "Created Core\n";	
+
 	// initialize core array
 	for(int r = 0; r < dZ-2; r++)
 	{
@@ -137,7 +143,7 @@ std::cout << "rank: " << rank << " size" << size << "\n";
 			}
 		}
 	}
-//std::cout << "Initialized Core\n";
+
 	// Determine what neighbors are around
 	setNeighbors();
 
@@ -148,18 +154,11 @@ std::cout << "rank: " << rank << " size" << size << "\n";
 	if(rank == size - 1)
 	{
 		Ofile = fopen("Data.txt","w");
-		std::cout << rank << " opened File\n";
 	}
 
 	int cnt = 0;		// loop counter
 	double qo = 100.0;	// initial front temp
 	double qf = 0.0;	// initial back temp
-
-	double	lastTemp = defltTemp,
-			diff = 0,
-			minDiff = 2E-5,
-			minChg = 1E-2,
-			curNodeTemp = 0;
 
 	// Flags
 	bool endLoop = false;
@@ -202,7 +201,7 @@ std::cout << "rank: " << rank << " size" << size << "\n";
     	recvFront[q] = new double[dX];
     	recvBack[q]	 = new double[dX];
 	}
-//std::cout << "Created send recv arrays\n";
+
 	// Initialize face arrays
 	for(int z = 0; z < dZ; z++)
 	{
@@ -234,9 +233,9 @@ std::cout << "rank: " << rank << " size" << size << "\n";
 			recvBack[y][x]	= 0;
 		}
 	}
-//std::cout << "Initiallized send recv arrays\n";
+
 	// Set initial temperature
-	if(nLoopZ == 0)
+	if(!front)
 	{
 		for(int y = 0; y < dY; y++)
 		{
@@ -246,7 +245,7 @@ std::cout << "rank: " << rank << " size" << size << "\n";
 			}
 		}
 	}
-	else if (nLoopZ + dZ == k)
+	else if (!back)
 	{
 		for(int y = 0; y < dY; y++)
 		{
@@ -256,24 +255,25 @@ std::cout << "rank: " << rank << " size" << size << "\n";
 			}
 		}
 	}
-//std::cout << "Initiallized temp in core\n" << "Starting while loop now.\n";
 
 	int zero = 0;
 	while(done == 0)
 	{
-std::cout << rank << " is still working\n";
-std::cout << "core [dZ - 3][dY - 3][dX - 3] = " << core[dZ-3][dY-3][dX-3] << "\n";
 		cnt++;
+		sendData();
+
+		// Update Core
 		for(int z = 0; z < dZ-2; z++)
 		{
 			for(int y = 0; y < dY-2; y++)
 			{
 				for(int x = 0; x < dX-2; x++)
 				{
-std::cout << rank << " in loop " << cnt << "\n";
 					// Update core 3D array
 					curNodeTemp = updateCore(x, y, z);
 					core[z][y][x] = curNodeTemp;
+
+//std::cout << rank << " has core value of " << core[0][y][x] << "\n";
 
 					if(curNodeTemp > (qo + qf))
 					{
@@ -297,71 +297,90 @@ std::cout << rank << " in loop " << cnt << "\n";
 		endLoop = false;
 
 		// Update each face
-std::cout << rank << " updating LEFT and RIGHT\n";
 		for(int z = 0; z < dZ; z++)
 		{
 			for(int y = 0; y < dY; y++)
 			{
 				sendLeft[z][y]  = updateFace(zero, y, z, LEFT);
 				sendRight[z][y] = updateFace(dX-1, y, z, RIGHT);
+				if(sendLeft[z][y] > (qo + qf) || sendRight[z][y] > (qo + qf))
+				{
+					printf("Became unstable");
+					MPI_Finalize();
+
+					return 1;
+				}
 			}
-		}
-std::cout << rank << " updating TOP and BOTTOM\n";
-		for(int z = 0; z < dZ; z++)
-		{
 			for(int x = 0; x < dX; x++)
 			{
 				sendTop[z][x]    = updateFace(x, dY-1, z, TOP);
 				sendBottom[z][x] = updateFace(x, zero, z, BOTTOM);
+				if(sendTop[z][x] > (qo + qf) || sendBottom[z][x] > (qo + qf))
+				{
+					printf("Became unstable");
+					MPI_Finalize();
+
+					return 1;
+				}
 			}
 		}
-std::cout << rank << " updating FRONT and BACK\n";
 		for(int y = 0; y < dY; y++)
 		{
 			for(int x = 0; x < dX; x++)
 			{
 				// Only update front and back if they are not
 				// the very front or very back
-				if(nLoopZ != 0)
+				if(front)
+				{
 					sendFront[y][x] = updateFace(x, y, zero, FRONT);
-				if(nLoopZ + dZ != k)
+					if(sendFront[y][x] > (qo + qf))
+					{
+std::cout << rank << " has front value of " << core[y][x] << "\n";
+						printf("Became unstable");
+						MPI_Finalize();
+
+						return 1;
+					}
+				}
+				if(back)
+				{
 					sendBack[y][x]  = updateFace(x, y, dZ-1, BACK);
+					if(sendBack[y][x] > (qo + qf))
+					{
+						printf("Became unstable");
+						MPI_Finalize();
+
+						return 1;
+					}
+				}
 			}
 		}
 
-//		if(nLoopZ + dZ == k)
-//		{
-			if( changed == 0 )
-			{
-				if(sendBack[0][0] > defltTemp + minChg || sendBack[0][0] < defltTemp - minChg)
-				{
-					changed = 1;
-				}
-			}
-			//  ASUMPTION that the loop in which it initially changes is not the same 
-			//  loop that it reaches the steady-state otherwise we will get one more
-			//  itteration
-			else
-			{
-				diff = fabs(lastTemp - sendBack[0][0]);
-				lastTemp = sendBack[0][0];
-				if(diff < minDiff)
-				{
-					done = 1;
-					std::cout << "DONE\n\n";
-				}
-			}
-//		}
-
-		if(cnt%1 == 0 || done > 0)
+		if( changed == 0 )
 		{
-			// If one processor meets the ending requirements then send that to
-			// all processors so they can quit working
-std::cout << rank << " Performing an allreduce for done\n";
-			MPI_Allreduce( MPI_IN_PLACE, &done, 1, MPI_INT, MPI_MAX, cartComm);
+//std::cout << rank << " has back value of " << core[dZ-3][0][0] << "\n";
+			if( core[dZ-3][0][0] > defltTemp + minChg || core[dZ-3][0][0] < defltTemp - minChg )
+			{
+//std::cout << rank << " has back value of " << core[dZ-3][0][0] << "\n";
+				changed = 1;
+			}
 		}
-std::cout << rank << " Sending Data\n";
-		sendData();
+		//  ASUMPTION that the loop in which it initially changes is not the same 
+		//  loop that it reaches the steady-state otherwise we will get one more
+		//  itteration
+		else
+		{
+			diff = fabs(lastTemp - core[dZ-3][0][0]);
+std::cout << rank << " has diff of " << diff << " and lastTemp of " << lastTemp << "\n";
+			lastTemp = core[dZ-3][0][0];
+			if(diff < minDiff)
+			{
+				done = 1;
+				std::cout << rank << " DONE\n\n";
+			}
+		}
+
+		MPI_Allreduce( MPI_IN_PLACE, &done, 1, MPI_INT, MPI_MAX, cartComm);
 	}
 
 	// Note when a processor exits the loop
@@ -370,13 +389,13 @@ std::cout << "Node " << rank << " is out\n";
 	// When the last node exits have it write out to the data file
 	if(rank == size - 1)
 	{
-		for(int z = 0; z < dZ; z++)
+		for(int z = 0; z < dZ-2; z++)
 		{
 			fprintf(Ofile,"%i,%f\n", cnt, core[z][0][0]);
 		}
 		fclose(Ofile);
 	}
-
+/*
 	// Release the allocated Memory
 	for (int r = 0; r < dZ; ++r)
 	{
@@ -402,14 +421,14 @@ std::cout << "Node " << rank << " is out\n";
 		delete [] recvBack[q];
 	}
 
-	for (int q = 0; q < dY; ++q)
+	for (int r = 0; r < dZ-2; ++r)
 	{
-		for (int p = 0; p < dX; ++p)
+		for (int q = 0; q < dY-2; ++q)
 		{
-			delete [] core[q][p];
+			delete [] core[r][q];
 		}
 
-		delete [] core[q];
+		delete [] core[r];
 	}
 
 	delete [] core;
@@ -425,6 +444,7 @@ std::cout << "Node " << rank << " is out\n";
 	delete [] recvBottom;
 	delete [] recvFront;
 	delete [] recvBack;
+*/
 
 	MPI_Finalize();
 	return 0;
@@ -463,10 +483,10 @@ void setNeighbors()
 		back = true;
 }
 
-void setDims(int &nSize)
+void setDims()
 {
-	int tmpDim = (int)floor(pow((double)nSize,0.33333333333333333333));
-	int tmpSize = nSize / tmpDim;
+	int tmpDim = (int)floor( pow( (double)size, (1.0/3.0) ) );
+	int tmpSize = size / tmpDim;
 
 	dims[0] = tmpDim;
 
@@ -491,7 +511,7 @@ double updateCore(const int &x, const int &y, const int &z)
 		   zM1=0,
 		   nCur=core[z][y][x];
 
-	if(x+1 < dX-1)
+	if(x+1 < dX-2)
 		xP1=core[z][y][x+1];
 	else
 	{
@@ -519,7 +539,7 @@ double updateCore(const int &x, const int &y, const int &z)
 		}
 	}
 
-	if(y+1 < dY-1)
+	if(y+1 < dY-2)
 		yP1=core[z][y+1][x];
 	else
 	{
@@ -547,7 +567,7 @@ double updateCore(const int &x, const int &y, const int &z)
 		}
 	}
 
-	if(z+1 < dZ-1)
+	if(z+1 < dZ-2)
 		zP1=core[z+1][y][x];
 	else
 	{
@@ -601,14 +621,14 @@ double updateFace(const int &x, const int &y, const int &z, Face fFace)
 		{
 			xP1=core[z-1][y-1][0];
 		}
-		else if(y == 0)
-			xP1=sendBottom[z][x];
+		else if (y == 0)
+			xP1=sendBottom[z][1];
 		else if (y == dY-1)
-			xP1=sendTop[z][x];
-		else if(z == 0)
-			xP1=sendFront[y][x];
+			xP1=sendTop[z][1];
+		else if (z == 0)
+			xP1=sendFront[y][1];
 		else if (z == dZ-1)
-			xP1=sendBack[y][x];
+			xP1=sendBack[y][1];
 		xM1=recvLeft[z][y];
 		
 		if(y+1 < dY)
@@ -617,7 +637,7 @@ double updateFace(const int &x, const int &y, const int &z, Face fFace)
 		{
 			if(top)
 			{
-				yP1=recvTop[z][x];
+				yP1=recvTop[z][0];
 			}
 			else
 			{
@@ -631,7 +651,7 @@ double updateFace(const int &x, const int &y, const int &z, Face fFace)
 		{
 			if(bottom)
 			{
-				yM1=recvBottom[z][x];
+				yM1=recvBottom[z][0];
 			}
 			else
 			{
@@ -645,11 +665,11 @@ double updateFace(const int &x, const int &y, const int &z, Face fFace)
 		{
 			if(back)
 			{
-				zM1=recvBack[y][x];
+				zP1=recvBack[y][0];
 			}
 			else
 			{
-				zM1=nCur;
+				zP1=nCur;
 			}
 		}
 
@@ -659,11 +679,11 @@ double updateFace(const int &x, const int &y, const int &z, Face fFace)
 		{
 			if(front)
 			{
-				zP1=recvFront[y][x];
+				zM1=recvFront[y][0];
 			}
 			else
 			{
-				zP1=nCur;
+				zM1=nCur;
 			}
 		}
 	}
@@ -671,16 +691,17 @@ double updateFace(const int &x, const int &y, const int &z, Face fFace)
 	{
 		nCur = sendRight[z][y];
 		xP1=recvRight[z][y];
+
 		if(y > 0 && y < dY-1 && z > 0 && z < dZ-1)
 			xM1=core[z-1][y-1][dX-3];
-		else if(y == 0)
-			xM1=sendBottom[z][x];
+		else if (y == 0)
+			xM1=sendBottom[z][dX-2];
 		else if (y == dY-1)
-			xM1=sendTop[z][x];
-		else if(z == 0)
-			xM1=sendFront[y][x];
+			xM1=sendTop[z][dX-2];
+		else if (z == 0)
+			xM1=sendFront[y][dX-2];
 		else if (z == dZ-1)
-			xM1=sendBack[y][x];
+			xM1=sendBack[y][dX-2];
 
 		if(y+1 < dY)
 			yP1=sendRight[z][y+1];
@@ -688,7 +709,7 @@ double updateFace(const int &x, const int &y, const int &z, Face fFace)
 		{
 			if(top)
 			{
-				yP1=recvTop[z][x];
+				yP1=recvTop[z][dX-1];
 			}
 			else
 			{
@@ -702,7 +723,7 @@ double updateFace(const int &x, const int &y, const int &z, Face fFace)
 		{
 			if(bottom)
 			{
-				yM1=recvBottom[z][x];
+				yM1=recvBottom[z][dX-1];
 			}
 			else
 			{
@@ -716,7 +737,7 @@ double updateFace(const int &x, const int &y, const int &z, Face fFace)
 		{
 			if(back)
 			{
-				zM1=recvBack[y][x];
+				zM1=recvBack[y][dX-1];
 			}
 			else
 			{
@@ -730,7 +751,7 @@ double updateFace(const int &x, const int &y, const int &z, Face fFace)
 		{
 			if(front)
 			{
-				zP1=recvFront[y][x];
+				zP1=recvFront[y][dX-1];
 			}
 			else
 			{
@@ -748,7 +769,7 @@ double updateFace(const int &x, const int &y, const int &z, Face fFace)
 		{
 			if(right)
 			{
-				xP1=recvRight[z][y];
+				xP1=recvRight[z][dY-1];
 			}
 			else
 			{
@@ -762,7 +783,7 @@ double updateFace(const int &x, const int &y, const int &z, Face fFace)
 		{
 			if(left)
 			{
-				xM1=recvLeft[z][y];
+				xM1=recvLeft[z][dY-1];
 			}
 			else
 			{
@@ -773,14 +794,14 @@ double updateFace(const int &x, const int &y, const int &z, Face fFace)
 		yP1=recvTop[z][x];
 		if(x > 0 && x < dX-1 && z > 0 && z < dZ-1)
 			yM1=core[z-1][dY-3][x-1];
-		else if(x == 0)
-			yM1=sendLeft[z][y];
+		else if (x == 0)
+			yM1=sendLeft[z][dY-2];
 		else if (x == dX-1)
-			yM1=sendRight[z][y];
-		else if(z == 0)
-			yM1=sendFront[y][x];
+			yM1=sendRight[z][dY-2];
+		else if (z == 0)
+			yM1=sendFront[dY-2][x];
 		else if (z == dZ-1)
-			yM1=sendBack[y][x];
+			yM1=sendBack[dY-2][x];
 
 		if(z+1 < dZ)
 			zP1=sendTop[z+1][y];
@@ -788,7 +809,7 @@ double updateFace(const int &x, const int &y, const int &z, Face fFace)
 		{
 			if(back)
 			{
-				zP1=recvBack[y][x];
+				zP1=recvBack[dY-1][x];
 			}
 			else
 			{
@@ -797,12 +818,12 @@ double updateFace(const int &x, const int &y, const int &z, Face fFace)
 		}
 
 		if(z-1 >= 0)
-			zM1=sendRight[z-1][y];
+			zM1=sendTop[z-1][y];
 		else
 		{
 			if(front)
 			{
-				zM1=recvFront[y][x];
+				zM1=recvFront[dY-1][x];
 			}
 			else
 			{
@@ -820,7 +841,7 @@ double updateFace(const int &x, const int &y, const int &z, Face fFace)
 		{
 			if(right)
 			{
-				xP1=recvRight[z][y];
+				xP1=recvRight[z][0];
 			}
 			else
 			{
@@ -834,7 +855,7 @@ double updateFace(const int &x, const int &y, const int &z, Face fFace)
 		{
 			if(left)
 			{
-				xM1=recvLeft[z][y];
+				xM1=recvLeft[z][0];
 			}
 			else
 			{
@@ -845,14 +866,14 @@ double updateFace(const int &x, const int &y, const int &z, Face fFace)
 		yM1=recvBottom[z][x];
 		if(x > 0 && x < dX-1 && z > 0 && z < dZ-1)
 			yP1=core[z-1][0][x-1];
-		else if(x == 0)
-			yP1=sendLeft[z][y];
+		else if (x == 0)
+			yP1=sendLeft[z][1];
 		else if (x == dX-1)
-			yP1=sendRight[z][y];
-		else if(z == 0)
-			yP1=sendFront[y][x];
+			yP1=sendRight[z][1];
+		else if (z == 0)
+			yP1=sendFront[1][x];
 		else if (z == dZ-1)
-			yP1=sendBack[y][x];
+			yP1=sendBack[1][x];
 
 		if(z+1 < dZ)
 			zP1=sendBottom[z+1][y];
@@ -860,7 +881,7 @@ double updateFace(const int &x, const int &y, const int &z, Face fFace)
 		{
 			if(back)
 			{
-				zP1=recvBack[y][x];
+				zP1=recvBack[0][x];
 			}
 			else
 			{
@@ -874,7 +895,7 @@ double updateFace(const int &x, const int &y, const int &z, Face fFace)
 		{
 			if(front)
 			{
-				zM1=recvFront[y][x];
+				zM1=recvFront[0][x];
 			}
 			else
 			{
@@ -892,7 +913,7 @@ double updateFace(const int &x, const int &y, const int &z, Face fFace)
 		{
 			if(right)
 			{
-				xP1=recvRight[z][y];
+				xP1=recvRight[0][y];
 			}
 			else
 			{
@@ -906,7 +927,7 @@ double updateFace(const int &x, const int &y, const int &z, Face fFace)
 		{
 			if(left)
 			{
-				xM1=recvLeft[z][y];
+				xM1=recvLeft[0][y];
 			}
 			else
 			{
@@ -920,7 +941,7 @@ double updateFace(const int &x, const int &y, const int &z, Face fFace)
 		{
 			if(top)
 			{
-				yP1=recvTop[z][x];
+				yP1=recvTop[0][x];
 			}
 			else
 			{
@@ -934,7 +955,7 @@ double updateFace(const int &x, const int &y, const int &z, Face fFace)
 		{
 			if(bottom)
 			{
-				yM1=recvBottom[z][x];
+				yM1=recvBottom[0][x];
 			}
 			else
 			{
@@ -946,13 +967,13 @@ double updateFace(const int &x, const int &y, const int &z, Face fFace)
 		if(x > 0 && x < dX-1 && y > 0 && y < dY-1)
 			zP1=core[dZ-3][y-1][x-1];
 		else if(x == 0)
-			zP1=sendLeft[z][y];
+			zP1=sendLeft[1][y];
 		else if (x == dX-1)
-			zP1=sendRight[z][y];
+			zP1=sendRight[1][y];
 		else if(y == 0)
-			zP1=sendBottom[z][x];
+			zP1=sendBottom[1][x];
 		else if (y == dY-1)
-			zP1=sendTop[z][x];
+			zP1=sendTop[1][x];
 	}
 	else if( fFace == BACK)
 	{
@@ -964,7 +985,7 @@ double updateFace(const int &x, const int &y, const int &z, Face fFace)
 		{
 			if(right)
 			{
-				xP1=recvRight[z][y];
+				xP1=recvRight[dZ-1][y];
 			}
 			else
 			{
@@ -973,12 +994,12 @@ double updateFace(const int &x, const int &y, const int &z, Face fFace)
 		}
 
 		if(x-1 >= 0)
-			xM1=sendFront[z][x-1];
+			xM1=sendBack[z][x-1];
 		else
 		{
 			if(left)
 			{
-				xM1=recvLeft[z][y];
+				xM1=recvLeft[dZ-1][y];
 			}
 			else
 			{
@@ -987,12 +1008,12 @@ double updateFace(const int &x, const int &y, const int &z, Face fFace)
 		}
 
 		if(y+1 < dY)
-			yP1=sendFront[z][y+1];
+			yP1=sendBack[z][y+1];
 		else
 		{
 			if(top)
 			{
-				yP1=recvTop[z][x];
+				yP1=recvTop[dZ-1][x];
 			}
 			else
 			{
@@ -1001,12 +1022,12 @@ double updateFace(const int &x, const int &y, const int &z, Face fFace)
 		}
 
 		if(y-1 >= 0)
-			yM1=sendFront[z][y-1];
+			yM1=sendFront[dZ-1][y-1];
 		else
 		{
 			if(bottom)
 			{
-				yM1=recvBottom[z][x];
+				yM1=recvBottom[dZ-1][x];
 			}
 			else
 			{
@@ -1017,20 +1038,22 @@ double updateFace(const int &x, const int &y, const int &z, Face fFace)
 		zP1=recvBack[y][x];
 		if(x > 0 && x < dX-1 && y > 0 && y < dY-1)
 			zM1=core[dZ-3][y-1][x-1];
-		else if(x == 0)
-			zM1=sendLeft[z][y];
+		else if (x == 0)
+			zM1=sendLeft[dZ-1][y];
 		else if (x == dX-1)
-			zM1=sendRight[z][y];
-		else if(y == 0)
-			zM1=sendBottom[z][x];
+			zM1=sendRight[dZ-1][y];
+		else if (y == 0)
+			zM1=sendBottom[dZ-1][x];
 		else if (y == dY-1)
-			zM1=sendTop[z][x];
+			zM1=sendTop[dZ-1][x];
 	}
 
 	result = alpha*dt*(pow((double)dw,2)*(xM1-2*nCur+xP1)
 					 + pow((double)dh,2)*(yM1-2*nCur+yP1)
 					 + pow((double)dl,2)*(zM1-2*nCur+zP1)) + nCur;
 
+if(fFace == BACK && rank%2 != 0)
+std::cout << rank << " has BACK value of " << result << "\n";
 	return result;
 }
 
@@ -1043,7 +1066,7 @@ void sendData()
                		 recvLeft, dY*dZ, MPI_DOUBLE, 
                		 nLeft, rank,
                		 oldComm, MPI_STATUS_IGNORE);
-std::cout << rank << " sent Left\n";
+//std::cout << rank << " sent Left\n";
 	}
 	if(right)
 	{
@@ -1053,7 +1076,7 @@ std::cout << rank << " sent Left\n";
                		 nRight, rank,
                		 oldComm, MPI_STATUS_IGNORE);
 
-std::cout << rank << " sent Right\n";
+//std::cout << rank << " sent Right\n";
 	}
 	if(top)
 	{
@@ -1062,16 +1085,16 @@ std::cout << rank << " sent Right\n";
                		 recvTop, dX*dZ, MPI_DOUBLE, 
                		 nTop, rank,
                		 oldComm, MPI_STATUS_IGNORE);
-std::cout << rank << " sent Top\n";
+//std::cout << rank << " sent Top\n";
 	}
 	if(bottom)
 	{
 		MPI_Sendrecv(sendBottom, dX*dZ, MPI_DOUBLE, 
                		 nBottom, nBottom,
-               		 recvLeft, dX*dZ, MPI_DOUBLE, 
+               		 recvBottom, dX*dZ, MPI_DOUBLE, 
                		 nBottom, rank,
                		 oldComm, MPI_STATUS_IGNORE);
-std::cout << rank << " sent Bottom\n";
+//std::cout << rank << " sent Bottom\n";
 	}
 
 	if(front)
@@ -1081,7 +1104,7 @@ std::cout << rank << " sent Bottom\n";
                		 recvFront, dY*dX, MPI_DOUBLE, 
                		 nFront, rank,
                		 oldComm, MPI_STATUS_IGNORE);
-std::cout << rank << " sent Front\n";
+//std::cout << rank << " sent Front\n";
 	}
 	if(back)
 	{
@@ -1090,6 +1113,6 @@ std::cout << rank << " sent Front\n";
                		 recvBack, dY*dX, MPI_DOUBLE, 
                		 nBack, rank,
                		 oldComm, MPI_STATUS_IGNORE);
-std::cout << rank << " sent Back\n";
+//std::cout << rank << " sent Back\n";
 	}
 }
