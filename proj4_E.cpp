@@ -12,9 +12,9 @@ void   setDims(int &nSize);
 //**************************************************
 
 // the step size in each direction and default Temp
-const double dw = 20, // X
-	   		 dh = 20, // Y
-	    	 dl = 20, // Z
+const double dw = 100, // X
+	   		 dh = 100, // Y
+	    	 dl = 50, // Z
 			 defltTemp = 0;
 
 // Physical Dimensions of the box
@@ -48,11 +48,18 @@ int main(int argc, char** argv)
 {
 	int rank, size;
 	int nLoopX = 0, nLoopY = 0, nLoopZ = 0;
+	int bufInt[4] = {0,0,0,0};
+	double bufDouble[1] = {0.0};
+	int fileSize = 0;
 
-	MPI_Init(&argc, &argv);
+//	MPI_Init(&argc, &argv);
+	MPI::Init();
+
 	oldComm = MPI_COMM_WORLD;
-	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-	MPI_Comm_size(MPI_COMM_WORLD, &size);
+//	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+//	MPI_Comm_size(MPI_COMM_WORLD, &size);
+	rank = MPI::COMM_WORLD.Get_rank();
+    size = MPI::COMM_WORLD.Get_size();
 
 	setDims(size);
 
@@ -74,20 +81,14 @@ int main(int argc, char** argv)
 
 	// Open file to which data will be written
 //	FILE *Ofile;
-	MPI_File dataFile;
+	MPI::File dataFile;
 
-	MPI_File_open(oldComm,
-				  "test.csv",
-				  MPI_MODE_CREATE | MPI_MODE_RDWR,
-				  MPI_INFO_NULL,
-				  &dataFile);
- 
+	dataFile = MPI::File::Open( oldComm, 
+								"/scratch/jskristo/Exy200_4",
+								MPI::MODE_CREATE | MPI::MODE_RDWR,
+								MPI::INFO_NULL);
 
-	// Only have the first processor control the file
-	if(rank == size - 1)
-	{
-		Ofile = fopen("Data.txt","w");
-	}
+	fileSize = dataFile.Get_size();
 
 	// coordinate of the middle of the structure
 	int midI = (int)floor(double(i) * 0.5);
@@ -109,29 +110,47 @@ int main(int argc, char** argv)
 		 changed = 0;
 
 	// Set initial temperature
-	if(nLoopZ == 0)
+	if(fileSize == 0)
 	{
-		for(int y = nLoopY; y < nLoopY + dY; y++)
+		if(nLoopZ == 0)
 		{
-			for(int x = nLoopX; x < nLoopX + dX; x++)
+			for(int y = nLoopY; y < nLoopY + dY; y++)
 			{
-				nodes[0][y][x] = qo;
+				for(int x = nLoopX; x < nLoopX + dX; x++)
+				{
+					nodes[0][y][x] = qo;
+				}
+			}
+		}
+		else if (nLoopZ + dZ == k)
+		{
+			for(int y = nLoopY; y < nLoopY + dY; y++)
+			{
+				for(int x = nLoopX; x < nLoopX + dX; x++)
+				{
+					nodes[k-1][y][x] = qf;
+				}
 			}
 		}
 	}
-	else if (nLoopZ + dZ == k)
+	else
 	{
-		for(int y = nLoopY; y < nLoopY + dY; y++)
+		dataFile.Seek(rank*dX*dY*dZ*(4*sizeof(int)+sizeof(double)), MPI_SEEK_SET);
+		for(int z = nLoopZ; z < nLoopZ + dZ; z++)
 		{
-			for(int x = nLoopX; x < nLoopX + dX; x++)
+			for(int y = nLoopY; y < nLoopY + dY; y++)
 			{
-				nodes[k-1][y][x] = qf;
+				for(int x = nLoopX; x < nLoopX + dX; x++)
+				{
+					dataFile.Read(bufInt, 4, MPI_INT);
+					dataFile.Read(bufDouble, 1, MPI_DOUBLE);
+					nodes[bufInt[3]][bufInt[2]][bufInt[1]] = bufDouble[0];
+				}
 			}
 		}
 	}
 
 	// Make sure all of the initalization is done
-//	MPI_Barrier(cartComm);
 	MPI_Allreduce( MPI_IN_PLACE, &nodes, i*j*k, MPI_DOUBLE, MPI_MAX, cartComm );
 
 	while(done == 0)
@@ -199,25 +218,53 @@ int main(int argc, char** argv)
 
 			// Make sure all data is up to date at the end of every 100th time step
 			MPI_Allreduce( MPI_IN_PLACE, &nodes, i*j*k, MPI_DOUBLE, MPI_MAX, cartComm);
-			MPI_Allreduce( MPI_IN_PLACE, &changed, 1, MPI_INT, MPI_MAX, cartComm);	
+			MPI_Allreduce( MPI_IN_PLACE, &changed, 1, MPI_INT, MPI_MAX, cartComm);
+		}
+		if(cnt%1000 == 0 || done > 0)
+		{
+			dataFile.Seek(rank*dX*dY*dZ*(4*sizeof(int)+sizeof(double)), MPI_SEEK_SET);
+			for(int z = nLoopZ; z < nLoopZ + dZ; z++)
+			{
+				for(int y = nLoopY; y < nLoopY + dY; y++)
+				{
+					for(int x = nLoopX; x < nLoopX + dX; x++)
+					{
+						bufInt[0] = cnt;
+						bufInt[1] = x;
+						bufInt[2] = y;
+						bufInt[3] = z;
+						bufDouble[0] = nodes[z][y][x];
+						dataFile.Write(bufInt, 4, MPI_INT);
+						dataFile.Write(bufDouble, 1, MPI_DOUBLE);
+					}
+				}
+			}
 		}
 	}
 	// Note when a processor exits the loop
 	// std::cout << "Node " << rank << " is out\n";
-	
-	// When the last node exits have it write out to the data file
-	if(rank == size - 1)
-	{
-		for(int z = 0; z < k; z++)
-		{
-			fprintf(Ofile,"%i,%f,%i\n", cnt, nodes[z][midJ][midI], rank);
-		}
-		fclose(Ofile);
-	}
-	// Make sure all the nodes are ready before we finalize and exit
-	//MPI_Barrier(oldComm);
 
-	MPI_Finalize();
+	// When the last node exits have it write out to the data file
+	dataFile.Seek(rank*dX*dY*dZ*(4*sizeof(int)+sizeof(double)), MPI_SEEK_SET);
+	for(int z = nLoopZ; z < nLoopZ + dZ; z++)
+	{
+		for(int y = nLoopY; y < nLoopY + dY; y++)
+		{
+			for(int x = nLoopX; x < nLoopX + dX; x++)
+			{
+				bufInt[0] = cnt;
+				bufInt[1] = x;
+				bufInt[2] = y;
+				bufInt[3] = z;
+				bufDouble[0] = nodes[z][y][x];
+				dataFile.Write(bufInt, 4, MPI_INT);
+				dataFile.Write(bufDouble, 1, MPI_DOUBLE);
+			}
+		}
+	}
+	dataFile.Close();
+
+	MPI::Finalize();
 	return 0;
 }
 
